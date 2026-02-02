@@ -280,6 +280,19 @@ class PluginBase(metaclass=abc.ABCMeta):
         print_fn(f"{cls.name} v{cls.plugin_version}, Meltano SDK v{cls.sdk_version}")
 
     @classmethod
+    def confirm_fetch_access_token_support(cls: Type["PluginBase"]) -> bool:
+        """Check if fetch access token support is implemented.
+
+        Returns:
+            True if fetch access token support is implemented, False otherwise.
+        """
+        try:
+            cls.access_token_support()
+        except NotImplementedError:
+            return False
+        return True
+
+    @classmethod
     def _get_about_info(cls: Type["PluginBase"]) -> Dict[str, Any]:
         """Returns capabilities and other tap metadata.
 
@@ -294,6 +307,7 @@ class PluginBase(metaclass=abc.ABCMeta):
         info["capabilities"] = cls.capabilities
         info["alerting_level"] = cls.alerting_level.value
 
+        # add settings to info
         config_jsonschema = cls.config_jsonschema
         cls.append_builtin_config(config_jsonschema)
         info["settings"] = config_jsonschema
@@ -365,7 +379,6 @@ class PluginBase(metaclass=abc.ABCMeta):
                 "Singer Taps and Targets.\n\n"
             )
             for key, value in info.items():
-
                 if key == "capabilities":
                     capabilities = f"## {key.title()}\n\n"
                     capabilities += "\n".join([f"* `{v}`" for v in value])
@@ -399,6 +412,49 @@ class PluginBase(metaclass=abc.ABCMeta):
         else:
             formatted = "\n".join([f"{k.title()}: {v}" for k, v in info.items()])
             print(formatted)
+
+    @classmethod
+    def access_token_support(cls: Type["PluginBase"], connector: Any = None) -> None:
+        """Get access token support.
+
+        Returns:
+            A tuple of the authenticator class and the auth endpoint.
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def fetch_access_token(cls: Type["PluginBase"], connector) -> dict:
+        """Fetch access token.
+
+        Returns:
+            A tuple of the authenticator class and the auth endpoint.
+        """
+        if not cls.confirm_fetch_access_token_support():
+            print(json.dumps({"error": "Fetch access token support is not implemented"}, indent=2))
+            return
+
+        authenticator, auth_endpoint = cls.access_token_support(connector)
+        # Check if a config file path is available for writing updated tokens
+        if connector.config_file is None:
+            print(
+                json.dumps(
+                    {
+                        "error": "The --access-token flag requires a config file path. "
+                        "Please provide a path to a config file instead of "
+                        "using --config ENV or omitting the config."
+                    },
+                    indent=2,
+                )
+            )
+            return
+
+        try:
+            cls.update_access_token(authenticator, auth_endpoint, connector)
+            access_token = {"access_token": connector.config.get("access_token")}
+            print(json.dumps(dict(access_token), indent=2, default=str))
+            return access_token
+        except Exception as ex:
+            print(json.dumps({"error": str(ex)}, indent=2))
 
     @classproperty
     def cli(cls) -> Callable:

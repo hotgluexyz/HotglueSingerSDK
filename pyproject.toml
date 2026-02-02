@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hotglue-singer-sdk"
-version = "1.0.7"
+version = "1.0.8"
 description = "A framework for building Singer taps and targets"
 authors = ["Hotglue Team and Contributors. Original work by Meltano Team and Contributors."]
 maintainers = ["Hotglue Team and Contributors"]

@@ -182,6 +182,9 @@ class PluginCapabilities(CapabilitiesEnum):
     # Supports raising hotglue exception classes
     HOTGLUE_EXCEPTIONS_CLASSES = "hotglue-exceptions-classes"
 
+    # Supports updating the access token
+    ALLOWS_FETCH_ACCESS_TOKEN = "allows-fetch-access-token"
+
 
 class TapCapabilities(CapabilitiesEnum):
     """Tap-specific capabilities."""

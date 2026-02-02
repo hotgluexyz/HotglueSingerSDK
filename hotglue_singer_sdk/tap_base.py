@@ -2,6 +2,7 @@
 
 import abc
 import json
+import sys
 from enum import Enum
 from pathlib import Path, PurePath
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
@@ -78,7 +79,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         self._catalog: Optional[Catalog] = None  # Tap's working catalog
         self.config_file = config[0] if config else None
 
-        # Process input catalog
+    def register_streams_from_catalog(self, catalog):
         if isinstance(catalog, Catalog):
             self._input_catalog = catalog
         elif isinstance(catalog, dict):
@@ -95,13 +96,15 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
         self.mapper.register_raw_streams_from_catalog(self.catalog)
 
-        # Process state
+
+    def register_state_from_file(self, state):
         state_dict: dict = {}
         if isinstance(state, dict):
             state_dict = state
         elif state:
             state_dict = read_json_file(state)
         self.load_state(state_dict)
+
 
     # Class properties
 
@@ -166,7 +169,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         Returns:
             A list of capabilities supported by this tap.
         """
-        return [
+        capabilities = [
             TapCapabilities.CATALOG,
             TapCapabilities.STATE,
             TapCapabilities.DISCOVER,
@@ -174,6 +177,10 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             PluginCapabilities.STREAM_MAPS,
             PluginCapabilities.FLATTENING,
         ]
+
+        if self.confirm_fetch_access_token_support():
+            capabilities.append(PluginCapabilities.ALLOWS_FETCH_ACCESS_TOKEN)
+        return capabilities
 
     # Connection test:
 
@@ -264,6 +271,34 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             f"Tap '{self.name}' does not support discovery. "
             "Please set the '--catalog' command line argument and try again."
         )
+
+    @classmethod
+    def update_access_token(cls, authenticator, auth_endpoint, tap) -> None:
+        """Update the access token.
+
+        Returns:
+            None
+        """
+
+        # If the tap has a use_auth_dummy_stream method, use it to create a dummy stream
+        # normally used for taps with dynamic catalogs
+        class DummyStream:
+            def __init__(self, tap):
+                self._tap = tap
+                self.logger = tap.logger
+                self.tap_name = tap.name
+                self.config = tap.config
+
+        stream = DummyStream(tap)
+        auth = authenticator(
+            stream=stream,
+            config_file=tap.config_file,
+            auth_endpoint=auth_endpoint,
+        )
+
+        # Update the access token
+        if not auth.is_token_valid():
+            auth.update_access_token()
 
     @final
     def load_streams(self) -> List[Stream]:
@@ -385,8 +420,6 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         for stream in self.streams.values():
             stream.log_sync_costs()
 
-    # Command Line Execution
-
     @classproperty
     def cli(cls) -> Callable:
         """Execute standard CLI handler for taps.
@@ -425,6 +458,12 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             help="Use a bookmarks file for incremental replication.",
             type=click.Path(),
         )
+        @click.option(
+            "--access-token",
+            "access_token",
+            is_flag=True,
+            help="Refresh the OAuth access token and update the config file.",
+        )
         @click.command(
             help="Execute the Singer tap.",
             context_settings={"help_option_names": ["--help"]},
@@ -438,6 +477,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             state: str = None,
             catalog: str = None,
             format: str = None,
+            access_token: bool = False,
         ) -> None:
             """Handle command line execution.
 
@@ -451,6 +491,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                     variables. Accepts multiple inputs as a tuple.
                 catalog: Use a Singer catalog file with the tap.",
                 state: Use a bookmarks file for incremental replication.
+                access_token: Refresh the OAuth access token and update the config.
 
             Raises:
                 FileNotFoundError: If the config file does not exist.
@@ -495,7 +536,12 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                 validate_config=validate_config,
             )
 
+            if access_token:
+                return cls.fetch_access_token(connector=tap)
+
             if discover:
+                tap.register_streams_from_catalog(catalog)
+                tap.register_state_from_file(state)
                 tap.run_discovery()
                 if test == CliTestOptionValue.All.value:
                     tap.run_connection_test()
@@ -504,6 +550,8 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             elif test == CliTestOptionValue.Schema.value:
                 tap.write_schemas()
             else:
+                tap.register_streams_from_catalog(catalog)
+                tap.register_state_from_file(state)
                 tap.sync_all()
 
         return cli
