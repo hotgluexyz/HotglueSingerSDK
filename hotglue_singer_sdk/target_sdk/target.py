@@ -36,10 +36,11 @@ SNAPSHOT_DIR = os.environ.get('SNAPSHOT_DIR') or f"/home/hotglue/{job_id}/snapsh
 class SignalListenerThread(threading.Thread):
     """Simple background thread that listens for SIGUSR1 signals."""
     
-    def __init__(self, shutdown_event):
+    def __init__(self, shutdown_event, logger):
         super().__init__(daemon=True)
         self.shutdown_event = shutdown_event
         self.signal_listener_file = "user_signal.listener"
+        self.logger = logger
         
     def run(self):
         """Create signal listener file and listen for SIGUSR1."""
@@ -51,7 +52,7 @@ class SignalListenerThread(threading.Thread):
                 f.write(f"Thread ID: {threading.get_ident()}\n")
                 f.write(f"Process ID: {os.getpid()}\n")
         except Exception as e:
-            print(f"Failed to create signal listener file: {e}")
+            self.logger.error(f"Failed to create signal listener file: {e}")
         
         # Wait for shutdown event
         self.shutdown_event.wait()
@@ -150,7 +151,6 @@ class TargetHotglue(Target):
 
         # Set up signal handler in main thread (signal handling only works in main thread)
         def signal_handler(signum, frame):
-            print(f"Received signal {signum}")
             self.logger.info(f"Received signal {signum}. Initiating graceful shutdown...")
             self._shutdown_requested.set()
             
@@ -158,7 +158,7 @@ class TargetHotglue(Target):
         signal.signal(signal.SIGUSR1, signal_handler)
         
         # Start signal listener thread
-        self.signal_listener_thread = SignalListenerThread(self._shutdown_requested)
+        self.signal_listener_thread = SignalListenerThread(self._shutdown_requested, self.logger)
         self.signal_listener_thread.start()
 
     def _save_failed_job_state(self):
