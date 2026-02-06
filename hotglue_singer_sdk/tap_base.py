@@ -650,10 +650,8 @@ def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
         "exception_traceback": formatted_traceback,
     }
 
-    # get current thread id
     current_thread_id = threading.get_ident()
 
-    # save exc_json to file
     with open(f"hg-tap-exception-{current_thread_id}.json", "w") as f:
         f.write(json.dumps(exc_json, indent=2))
 
@@ -676,7 +674,7 @@ def install_thread_excepthook():
 
 
 # only install the custom exception handler if we are running a tap
-if "tap" in sys.argv[0]:
+if len(sys.argv) > 0 and "tap" in sys.argv[0]:
     # Install the custom exception handler for main thread
     sys.excepthook = custom_hotglue_tap_exception_handling
     # Install the custom exception handler for threads
