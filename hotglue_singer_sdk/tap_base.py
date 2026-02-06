@@ -3,6 +3,8 @@
 import abc
 import json
 import sys
+import threading
+import traceback
 from enum import Enum
 from pathlib import Path, PurePath
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
@@ -25,6 +27,7 @@ from hotglue_singer_sdk.helpers.capabilities import (
 from hotglue_singer_sdk.mapper import PluginMapper
 from hotglue_singer_sdk.plugin_base import PluginBase
 from hotglue_singer_sdk.streams import SQLStream, Stream
+from hotglue_etl_exceptions import InvalidCredentialsError
 
 STREAM_MAPS_CONFIG = "stream_maps"
 
@@ -626,3 +629,54 @@ class SQLTap(Tap):
             result.append(self.default_stream_class(self, catalog_entry))
 
         return result
+
+
+def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
+    """
+    Global handler for all unhandled exceptions.
+    """
+    exc_type_to_log = exc_type
+    if issubclass(exc_type, InvalidCredentialsError):
+        exc_type_to_log = InvalidCredentialsError
+
+    exc_type_name = exc_type_to_log.__name__
+    exc_message = str(exc_value) if exc_value else None
+    formatted_traceback = "".join(traceback.format_tb(exc_traceback)) if exc_traceback else None
+
+    exc_json = {
+        "exception_name": exc_type_name,
+        "exception_message": exc_message,
+        "exception_traceback": formatted_traceback,
+    }
+
+    # get current thread id
+    current_thread_id = threading.get_ident()
+
+    # save exc_json to file
+    with open(f"hg-tap-exception-{current_thread_id}.json", "w") as f:
+        f.write(json.dumps(exc_json, indent=2))
+
+    # use the default hook to print to stderr
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
+
+
+def install_thread_excepthook():
+    """
+    Workaround for uncaught exceptions in threads.
+    """
+    run_old = threading.Thread.run
+    def run(*args, **kwargs):
+        try:
+            run_old(*args, **kwargs)
+        except:
+            sys.excepthook(*sys.exc_info())
+            raise
+    threading.Thread.run = run
+
+
+# only install the custom exception handler if we are running a tap
+if "tap" in sys.argv[0]:
+    # Install the custom exception handler for main thread
+    sys.excepthook = custom_hotglue_tap_exception_handling
+    # Install the custom exception handler for threads
+    install_thread_excepthook()
