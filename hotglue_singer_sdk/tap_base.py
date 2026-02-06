@@ -179,6 +179,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             PluginCapabilities.ABOUT,
             PluginCapabilities.STREAM_MAPS,
             PluginCapabilities.FLATTENING,
+            PluginCapabilities.HOTGLUE_EXCEPTIONS_CLASSES,
         ]
 
         if self.confirm_fetch_access_token_support():
