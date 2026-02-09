@@ -662,7 +662,7 @@ def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
 
         with open(f"hg-tap-exception-{current_thread_id}.json", "w") as f:
             f.write(json.dumps(exc_json, indent=2))
-    except:
+    except Exception:
         # we don't want to raise exceptions from this hook
         pass
 
