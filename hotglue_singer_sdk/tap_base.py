@@ -636,6 +636,13 @@ def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
     """
     Global handler for all unhandled exceptions.
     """
+    # if the exception is not derived from Exception we don't wanna log it
+    # example: KeyboardInterrupt, SystemExit, etc.
+    if not issubclass(exc_type, Exception):
+        # use the default hook to print to stderr
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+
     exc_type_to_log = exc_type
     if issubclass(exc_type, InvalidCredentialsError):
         exc_type_to_log = InvalidCredentialsError
@@ -667,7 +674,7 @@ def install_thread_excepthook():
     def run(*args, **kwargs):
         try:
             run_old(*args, **kwargs)
-        except:
+        except Exception:
             sys.excepthook(*sys.exc_info())
             raise
     threading.Thread.run = run
