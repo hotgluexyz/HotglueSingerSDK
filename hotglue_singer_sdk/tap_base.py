@@ -643,24 +643,28 @@ def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
 
-    exc_type_to_log = exc_type
-    if issubclass(exc_type, InvalidCredentialsError):
-        exc_type_to_log = InvalidCredentialsError
+    try:
+        exc_type_to_log = exc_type
+        if issubclass(exc_type, InvalidCredentialsError):
+            exc_type_to_log = InvalidCredentialsError
 
-    exc_type_name = exc_type_to_log.__name__
-    exc_message = str(exc_value) if exc_value else None
-    formatted_traceback = "".join(traceback.format_tb(exc_traceback)) if exc_traceback else None
+        exc_type_name = exc_type_to_log.__name__
+        exc_message = str(exc_value) if exc_value else None
+        formatted_traceback = "".join(traceback.format_tb(exc_traceback)) if exc_traceback else None
 
-    exc_json = {
-        "exception_name": exc_type_name,
-        "exception_message": exc_message,
-        "exception_traceback": formatted_traceback,
-    }
+        exc_json = {
+            "exception_name": exc_type_name,
+            "exception_message": exc_message,
+            "exception_traceback": formatted_traceback,
+        }
 
-    current_thread_id = threading.get_ident()
+        current_thread_id = threading.get_ident()
 
-    with open(f"hg-tap-exception-{current_thread_id}.json", "w") as f:
-        f.write(json.dumps(exc_json, indent=2))
+        with open(f"hg-tap-exception-{current_thread_id}.json", "w") as f:
+            f.write(json.dumps(exc_json, indent=2))
+    except:
+        # we don't want to raise exceptions from this hook
+        pass
 
     # use the default hook to print to stderr
     sys.__excepthook__(exc_type, exc_value, exc_traceback)
