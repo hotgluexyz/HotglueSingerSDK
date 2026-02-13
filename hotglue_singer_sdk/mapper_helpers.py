@@ -1,16 +1,17 @@
 from hotglue_singer_sdk.exceptions import StreamMapConfigError
 import logging
-
+from typing import Callable
 
 def _build_filter_fn(self, filter_rule):
-    if filter_rule is None:
-        return lambda record: True
-    if not isinstance(filter_rule, str):
-
-        def _filter(record):
-            filter_result = self._eval(expr=filter_rule, record=record, property_name=None)
+    
+    def eval_filter(filter_rule: str) -> Callable[[dict], bool]:
+        def _inner(record: dict) -> bool:
+            filter_result = self._eval(
+                expr=filter_rule, record=record, property_name=None
+            )
             logging.debug(
-                f"Filter result for '{filter_rule}' in '{{self.name}}' stream: {{filter_result}}"
+                f"Filter result for '{filter_rule}' "
+                "in '{self.name}' stream: {filter_result}"
             )
             if not filter_result:
                 logging.debug("Excluding record due to filter.")
@@ -18,12 +19,22 @@ def _build_filter_fn(self, filter_rule):
 
             return True
 
-        return _filter
-    raise StreamMapConfigError(
-        f"Unexpected filter rule type '{type(filter_rule).__name__}' in "
-        f"expression {str(filter_rule)}. Expected 'str' or 'None'."
-    )
+        return _inner
 
+    def always_true(record: dict) -> bool:
+        _ = record
+        return True
+
+    if isinstance(filter_rule, str):
+        filter_fn = eval_filter(filter_rule)
+    elif filter_rule is None:
+        filter_fn = always_true
+    else:
+        raise StreamMapConfigError(
+            f"Unexpected filter rule type '{type(filter_rule).__name__}' in "
+            f"expression {str(filter_rule)}. Expected 'str' or 'None'."
+        )
+    return filter_fn
 
 def _build_transform_fn(self, stream_map, include_by_default):
     def transform(record):
