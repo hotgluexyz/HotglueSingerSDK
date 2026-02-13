@@ -2,7 +2,6 @@
 
 import abc
 import json
-import sys
 from enum import Enum
 from pathlib import Path, PurePath
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast

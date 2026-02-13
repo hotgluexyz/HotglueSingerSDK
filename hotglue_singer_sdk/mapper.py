@@ -30,6 +30,7 @@ from hotglue_singer_sdk.typing import (
     Property,
     StringType,
 )
+from hotglue_singer_sdk.mapper_helpers import _build_filter_fn, _build_transform_fn
 
 MAPPER_ELSE_OPTION = "__else__"
 MAPPER_FILTER_OPTION = "__filter__"
@@ -294,9 +295,7 @@ class CustomStreamMap(StreamMap):
         funcs["md5"] = md5
         return funcs
 
-    def _eval(
-        self, expr: str, record: dict, property_name: str | None
-    ) -> str | int | float:
+    def _eval(self, expr: str, record: dict, property_name: str | None) -> str | int | float:
         """Solve an expression.
 
         Args:
@@ -323,14 +322,10 @@ class CustomStreamMap(StreamMap):
             )
             logging.debug(f"Eval result: {expr} = {result}")
         except Exception as ex:
-            raise MapExpressionError(
-                f"Failed to evaluate simpleeval expressions {expr}."
-            ) from ex
+            raise MapExpressionError(f"Failed to evaluate simpleeval expressions {expr}.") from ex
         return result
 
-    def _eval_type(
-        self, expr: str, default: JSONTypeHelper | None = None
-    ) -> JSONTypeHelper:
+    def _eval_type(self, expr: str, default: JSONTypeHelper | None = None) -> JSONTypeHelper:
         """Evaluate an expression's type.
 
         Args:
@@ -427,17 +422,13 @@ class CustomStreamMap(StreamMap):
                 transformed_schema["properties"].pop(prop_key, None)
             elif isinstance(prop_def, str):
                 default_type: JSONTypeHelper = StringType()  # Fallback to string
-                existing_schema: dict = transformed_schema["properties"].get(
-                    prop_key, {}
-                )
+                existing_schema: dict = transformed_schema["properties"].get(prop_key, {})
                 if existing_schema:
                     # Set default type if property exists already in JSON Schema
                     default_type = CustomType(existing_schema)
 
                 transformed_schema["properties"].update(
-                    Property(
-                        prop_key, self._eval_type(prop_def, default=default_type)
-                    ).to_dict()
+                    Property(prop_key, self._eval_type(prop_def, default=default_type)).to_dict()
                 )
             else:
                 raise StreamMapConfigError(
@@ -457,72 +448,8 @@ class CustomStreamMap(StreamMap):
             transformed_schema = self.flatten_schema(transformed_schema)
 
         # Declare function variables
-
-        def eval_filter(filter_rule: str) -> Callable[[dict], bool]:
-            def _inner(record: dict) -> bool:
-                filter_result = self._eval(
-                    expr=filter_rule, record=record, property_name=None
-                )
-                logging.debug(
-                    f"Filter result for '{filter_rule}' "
-                    "in '{self.name}' stream: {filter_result}"
-                )
-                if not filter_result:
-                    logging.debug("Excluding record due to filter.")
-                    return False
-
-                return True
-
-            return _inner
-
-        def always_true(record: dict) -> bool:
-            _ = record
-            return True
-
-        if isinstance(filter_rule, str):
-            filter_fn = eval_filter(filter_rule)
-        elif filter_rule is None:
-            filter_fn = always_true
-        else:
-            raise StreamMapConfigError(
-                f"Unexpected filter rule type '{type(filter_rule).__name__}' in "
-                f"expression {str(filter_rule)}. Expected 'str' or 'None'."
-            )
-
-        def transform_fn(record: dict) -> dict | None:
-            nonlocal include_by_default, stream_map
-
-            if not self.get_filter_result(record):
-                return None
-
-            if include_by_default:
-                result = record.copy()
-            else:
-                # Start with only the defined (or transformed) key properties
-                result = {}
-                for key_property in self.transformed_key_properties or []:
-                    if key_property in record:
-                        result[key_property] = record[key_property]
-
-            for prop_key, prop_def in list(stream_map.items()):
-                if prop_def is None:
-                    # Remove property from result
-                    result.pop(prop_key, None)
-                    continue
-
-                if isinstance(prop_def, str):
-                    # Apply property transform
-                    result[prop_key] = self._eval(
-                        expr=prop_def, record=record, property_name=prop_key
-                    )
-                    continue
-
-                raise StreamMapConfigError(
-                    f"Unexpected mapping type '{type(prop_def).__name__}' in "
-                    f"map expression '{prop_def}'. Expected 'str' or 'None'."
-                )
-
-            return result
+        filter_fn = _build_filter_fn(self, filter_rule)
+        transform_fn = _build_transform_fn(self, stream_map, include_by_default)
 
         return filter_fn, transform_fn, transformed_schema
 
@@ -550,9 +477,7 @@ class PluginMapper:
         self.default_mapper_type: type[DefaultStreamMap] = SameRecordTransform
         self.logger = logger
 
-        self.stream_maps_dict: dict[str, str | dict] = plugin_config.get(
-            "stream_maps", {}
-        )
+        self.stream_maps_dict: dict[str, str | dict] = plugin_config.get("stream_maps", {})
         if MAPPER_ELSE_OPTION in self.stream_maps_dict:
             if self.stream_maps_dict[MAPPER_ELSE_OPTION] is None:
                 logging.info(

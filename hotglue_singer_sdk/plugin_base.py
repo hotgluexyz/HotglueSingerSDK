@@ -248,7 +248,7 @@ class PluginBase(metaclass=abc.ABCMeta):
                 errors.append(str(ex.message))
         if errors:
             summary = (
-                f"Config validation failed: {f'; '.join(errors)}\n"
+                f"Config validation failed: {'; '.join(errors)}\n"
                 f"JSONSchema was: {config_jsonschema}"
             )
             if raise_errors:

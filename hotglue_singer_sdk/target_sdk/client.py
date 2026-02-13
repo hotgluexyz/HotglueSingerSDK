@@ -12,7 +12,6 @@ from hotglue_singer_sdk.target_sdk.common import HGJSONEncoder
 from hotglue_singer_sdk.plugin_base import PluginBase
 from hotglue_singer_sdk.sinks import RecordSink, BatchSink
 from hotglue_etl_exceptions import InvalidCredentialsError, InvalidPayloadError
-import os
 
 class HotglueBaseSink(Rest):
     summary_init = False
@@ -80,7 +79,7 @@ class HotglueBaseSink(Rest):
                 self.previous_state["summary"] = {}
 
             for stream in self.previous_state["bookmarks"]:
-                self.previous_state["bookmarks"][stream] = [record for record in self.previous_state["bookmarks"][stream] if record.get("success") != False]
+                self.previous_state["bookmarks"][stream] = [record for record in self.previous_state["bookmarks"][stream] if record.get("success")]
             for stream in self.previous_state["summary"]:
                 self.previous_state["summary"][stream]["fail"] = 0
         return self.previous_state
@@ -199,7 +198,7 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         state_updates = dict()
 
         try:
-            if not self.name in self.allows_externalid and record.get(self._target.EXTERNAL_ID_KEY):
+            if self.name not in self.allows_externalid and record.get(self._target.EXTERNAL_ID_KEY):
                 external_id = record.pop(self._target.EXTERNAL_ID_KEY, None)
 
             record = self.preprocess_record(record, context)

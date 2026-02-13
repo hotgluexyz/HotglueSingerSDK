@@ -1,7 +1,6 @@
 """Hotglue target sink class, which handles writing streams."""
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 
-from pydantic import BaseModel
 from hotglue_singer_sdk.target_sdk.client import HotglueSink
 
 class ModelSink(HotglueSink):
