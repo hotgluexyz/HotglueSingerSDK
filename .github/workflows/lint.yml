@@ -3,7 +3,7 @@ name: Lint
 on:
   pull_request:
     paths:
-      - '**.py'
+      - '**/*.py'
       - 'ruff.toml'
       - 'tox.ini'
       - 'pyproject.toml'
