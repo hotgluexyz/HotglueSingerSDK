@@ -9,5 +9,5 @@ class HGJSONEncoder(JSONEncoder):
 
         try:
             return super().default(o)
-        except:
+        except Exception:
             return str(o)
