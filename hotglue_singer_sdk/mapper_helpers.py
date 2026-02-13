@@ -62,5 +62,6 @@ def _build_transform_fn(self, stream_map, include_by_default):
                 f"Unexpected mapping type '{type(prop_def).__name__}' in "
                 f"map expression '{prop_def}'. Expected 'str' or 'None'."
             )
+        return result
 
     return transform
