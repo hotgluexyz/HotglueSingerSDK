@@ -22,7 +22,6 @@ from hotglue_singer_sdk.helpers._util import read_json_file
 from hotglue_singer_sdk.target_sdk.target_base import Target
 from hotglue_singer_sdk.target_sdk.sinks import ModelSink
 import pandas as pd
-import os
 from collections import Counter, defaultdict
 import threading
 import signal
@@ -46,7 +45,7 @@ class SignalListenerThread(threading.Thread):
         """Create signal listener file and listen for SIGUSR1."""
         # Create the signal listener file
         try:
-            root_dir = "/tmp" if os.environ.get("JOB_ID") else f"../.secrets"
+            root_dir = "/tmp" if os.environ.get("JOB_ID") else "../.secrets"
             with open(f"{root_dir}/{self.signal_listener_file}", 'w') as f:
                 f.write(f"Signal listener started at {time.time()}\n")
                 f.write(f"Thread ID: {threading.get_ident()}\n")
@@ -63,7 +62,11 @@ class TargetHotglue(Target):
     MAX_PARALLELISM = 8
     EXTERNAL_ID_KEY = "externalId"
     GLOBAL_PRIMARY_KEY = "id"
-    incremental_target_state_path = f"/home/hotglue/{job_id}/incremental_target_state.json" if job_id else f"../.secrets/incremental_target_state.json"
+    incremental_target_state_path = (
+        f"/home/hotglue/{job_id}/incremental_target_state.json"
+        if job_id
+        else "../.secrets/incremental_target_state.json"
+    )
 
     @property
     @abstractmethod
@@ -187,18 +190,22 @@ class TargetHotglue(Target):
             ),
             None,
         )
-    
+
+    def read_snapshot(self, object_name: str) -> pd.DataFrame:
+        snapshot_path_csv = f"{SNAPSHOT_DIR}/{object_name}.snapshot.csv"
+        snapshot_path_parquet = f"{SNAPSHOT_DIR}/{object_name}.snapshot.parquet"
+        if os.path.exists(snapshot_path_csv):
+            return pd.read_csv(snapshot_path_csv)
+        elif os.path.exists(snapshot_path_parquet):
+            return pd.read_parquet(snapshot_path_parquet)
+        return None
+
     def get_record_id(self, sink_name, record, relation_fields=None):
         external_id = record.get(self.EXTERNAL_ID_KEY)
         if external_id and not record.get(self.GLOBAL_PRIMARY_KEY):
-            sink_snapshot = None
-            snapshot_path_csv = f"{SNAPSHOT_DIR}/{sink_name}_{flow_id}.snapshot.csv"
-            snapshot_path_parquet = f"{SNAPSHOT_DIR}/{sink_name}_{flow_id}.snapshot.parquet"
-            if os.path.exists(snapshot_path_csv):
-                sink_snapshot = pd.read_csv(snapshot_path_csv)
-            elif os.path.exists(snapshot_path_parquet):
-                sink_snapshot = pd.read_parquet(snapshot_path_parquet)
-            
+            sink_snapshot_name = f"{sink_name}_{flow_id}"
+            sink_snapshot = self.read_snapshot(sink_snapshot_name)
+
             if sink_snapshot is not None:
                 sink_snapshot["InputId"] = sink_snapshot["InputId"].astype(str)
                 external_id = sink_snapshot[sink_snapshot["InputId"] == str(external_id)]
@@ -233,15 +240,8 @@ class TargetHotglue(Target):
                         record[field] = cur_record_state.get("id")
                         continue
 
-                relation_snapshot = None
-
-                relation_path_csv = f"{SNAPSHOT_DIR}/{object_name}_{flow_id}.snapshot.csv"
-                relation_path_parquet = f"{SNAPSHOT_DIR}/{object_name}_{flow_id}.snapshot.parquet"
-
-                if os.path.exists(relation_path_csv):
-                    relation_snapshot = pd.read_csv(relation_path_csv)
-                elif os.path.exists(relation_path_parquet):
-                    relation_snapshot = pd.read_parquet(relation_path_parquet)
+                relation_snapshot_name = f"{object_name}_{flow_id}"
+                relation_snapshot = self.read_snapshot(relation_snapshot_name)
 
                 if relation_snapshot is None:
                     continue
@@ -332,11 +332,6 @@ class TargetHotglue(Target):
         for stream_map in self.mapper.stream_maps[stream_name]:
             # new_schema = helpers._float_to_decimal(new_schema)
             raw_record = copy.copy(message_dict["record"])
-
-            lower_raw_record = {k.lower(): v for k, v in raw_record.items()}
-
-            external_id = lower_raw_record.get(self.EXTERNAL_ID_KEY.lower())
-
             transformed_record = stream_map.transform(raw_record)
             if transformed_record is None:
                 # Record was filtered out by the map transform

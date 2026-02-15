@@ -1,4 +1,8 @@
-import json, pathlib, uuid, subprocess, os
+import json
+import pathlib
+import uuid
+import subprocess
+import os
 from logging import Logger
 from typing import Union, Optional
 
@@ -92,7 +96,7 @@ def real_time_handler(
 ):
     cli_cmd = cli_cmd or os.environ.get("CLI_CMD")
     if not cli_cmd:
-        logger.info(f"Parameter cli_cmd or CLI_CMD env var are not set. This target does not support real time")
+        logger.info("Parameter cli_cmd or CLI_CMD env var are not set. This target does not support real time")
         raise Exception("This target does not support real time")
     logger.info(f"Entering \"real_time_handler\": cli_cmd={cli_cmd}, config={config}, stream_name={stream_name}")
     logger.info(f"Schema line: {schema_line}")
@@ -106,15 +110,15 @@ def real_time_handler(
         logger,
         input_path,
     )
-    logger.info(f"Preparing files...")
+    logger.info("Preparing files...")
     real_time.prepare()
-    logger.info(f"Running target...")
+    logger.info("Running target...")
     target_metrics = real_time.run()
-    logger.info(f"Getting state...")
+    logger.info("Getting state...")
     state = real_time.get_state()
-    logger.info(f"Cleaning up...")
+    logger.info("Cleaning up...")
     real_time.clean_up()
-    logger.info(f"Done")
+    logger.info("Done")
     return {
         "state": state,
         "metrics": target_metrics,
