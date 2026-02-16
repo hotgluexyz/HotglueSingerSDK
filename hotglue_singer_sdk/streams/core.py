@@ -52,7 +52,11 @@ from hotglue_singer_sdk.helpers._state import (
     write_replication_key_signpost,
     write_starting_replication_value,
 )
-from hotglue_singer_sdk.helpers._typing import conform_record_data_types, is_datetime_type
+from hotglue_singer_sdk.helpers._typing import (
+    conform_record_data_types,
+    is_datetime_type,
+    to_json_compatible,
+)
 from hotglue_singer_sdk.helpers._util import utc_now
 from hotglue_singer_sdk.mapper import RemoveRecordTransform, SameRecordTransform, StreamMap
 from hotglue_singer_sdk.plugin_base import PluginBase as TapBaseClass
@@ -65,6 +69,7 @@ REPLICATION_LOG_BASED = "LOG_BASED"
 FactoryType = TypeVar("FactoryType", bound="Stream")
 
 METRICS_LOG_LEVEL_SETTING = "metrics_log_level"
+CHILD_REPLICATION_KEY_VALUE = "child_replication_key_value"
 
 
 class Stream(metaclass=abc.ABCMeta):
@@ -356,6 +361,8 @@ class Stream(metaclass=abc.ABCMeta):
 
         if self.replication_key:
             replication_key_value = state.get("replication_key_value")
+            if replication_key_value is None:
+                replication_key_value = state.get(CHILD_REPLICATION_KEY_VALUE)
             if replication_key_value and self.replication_key == state.get(
                 "replication_key"
             ):
@@ -370,6 +377,35 @@ class Stream(metaclass=abc.ABCMeta):
                     value = self.compare_start_date(value, start_date_value)
 
         write_starting_replication_value(state, value)
+
+    def _increment_child_replication_state(
+        self, latest_record: Dict[str, Any], *, context: Optional[dict] = None
+    ) -> None:
+        """Track parent progress for child stream traversal when parent is deselected."""
+        if self.replication_method not in [
+            REPLICATION_INCREMENTAL,
+            REPLICATION_LOG_BASED,
+        ]:
+            return
+        if not self.replication_key:
+            raise ValueError(
+                f"Could not detect replication key for '{self.name}' stream"
+                f"(replication method={self.replication_method})"
+            )
+
+        state_dict = self.get_context_state(context)
+        old_rk_value = to_json_compatible(state_dict.get(CHILD_REPLICATION_KEY_VALUE))
+        new_rk_value = to_json_compatible(latest_record[self.replication_key])
+        if old_rk_value is None or not self.check_sorted or new_rk_value >= old_rk_value:
+            state_dict["replication_key"] = self.replication_key
+            state_dict[CHILD_REPLICATION_KEY_VALUE] = new_rk_value
+            return
+
+        if self.is_sorted:
+            raise InvalidStreamSortException(
+                f"Unsorted data detected in stream. Latest value '{new_rk_value}' is "
+                f"smaller than previous max '{old_rk_value}'."
+            )
 
     def get_replication_key_signpost(
         self, context: Optional[dict]
@@ -1103,6 +1139,22 @@ class Stream(metaclass=abc.ABCMeta):
                     self._write_record_message(record)
                     try:
                         self._increment_stream_state(record, context=current_context)
+                    except InvalidStreamSortException as ex:
+                        log_sort_error(
+                            log_fn=self.logger.error,
+                            ex=ex,
+                            record_count=record_count + 1,
+                            partition_record_count=partition_record_count + 1,
+                            current_context=current_context,
+                            state_partition_context=state_partition_context,
+                            stream_name=self.name,
+                        )
+                        raise ex
+                elif self.has_selected_descendents and self.replication_key:
+                    try:
+                        self._increment_child_replication_state(
+                            record, context=current_context
+                        )
                     except InvalidStreamSortException as ex:
                         log_sort_error(
                             log_fn=self.logger.error,
