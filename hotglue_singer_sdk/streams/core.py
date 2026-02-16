@@ -360,8 +360,9 @@ class Stream(metaclass=abc.ABCMeta):
         state = self.get_context_state(context)
 
         if self.replication_key:
-            replication_key_value = state.get("replication_key_value")
-            if replication_key_value is None:
+            if self.selected:
+                replication_key_value = state.get("replication_key_value")
+            else:
                 replication_key_value = state.get(CHILD_REPLICATION_KEY_VALUE)
             if replication_key_value and self.replication_key == state.get(
                 "replication_key"
