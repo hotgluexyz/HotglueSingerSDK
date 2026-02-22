@@ -319,26 +319,29 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         Returns:
             True if the request succeeded.
         """
-        stream = self._resolve_test_stream(stream_id)
-        decorated_request = stream.request_decorator(stream._request)
-        next_page_token: Any = None
-        all_records: List[dict] = []
-        for _ in range(pages):
-            prepared_request = stream.prepare_request(
-                context=None, next_page_token=next_page_token
-            )
-            resp = decorated_request(prepared_request, None)
-            for raw_record in stream.parse_response(resp):
-                processed = stream.post_process(raw_record, None)
-                if processed is not None:
-                    all_records.append(processed)
-            previous_token = copy.deepcopy(next_page_token)
-            next_page_token = stream.get_next_page_token(
-                response=resp, previous_token=previous_token
-            )
-            if not next_page_token:
-                break
-        print(json.dumps(all_records, indent=2, default=str))
+        try:
+            stream = self._resolve_test_stream(stream_id)
+            decorated_request = stream.request_decorator(stream._request)
+            next_page_token: Any = None
+            all_records: List[dict] = []
+            for _ in range(pages):
+                prepared_request = stream.prepare_request(
+                    context=None, next_page_token=next_page_token
+                )
+                resp = decorated_request(prepared_request, None)
+                for raw_record in stream.parse_response(resp):
+                    processed = stream.post_process(raw_record, None)
+                    if processed is not None:
+                        all_records.append(processed)
+                previous_token = copy.deepcopy(next_page_token)
+                next_page_token = stream.get_next_page_token(
+                    response=resp, previous_token=previous_token
+                )
+                if not next_page_token:
+                    break
+            print(json.dumps(all_records, indent=2, default=str))
+        except Exception as exc:
+            print(json.dumps({"status": "error", "error": str(exc)}, indent=2))
         return True
 
     @final
