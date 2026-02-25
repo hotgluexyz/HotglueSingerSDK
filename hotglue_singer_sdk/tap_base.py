@@ -80,7 +80,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         self._input_catalog: Optional[Catalog] = None
         self._state: Dict[str, Stream] = {}
         self._catalog: Optional[Catalog] = None  # Tap's working catalog
-        self.config_file = config[0] if config else None
+        self.config_file = config[0] if isinstance(config, (list, tuple)) and config else None
 
     def register_streams_from_catalog(self, catalog):
         if isinstance(catalog, Catalog):
