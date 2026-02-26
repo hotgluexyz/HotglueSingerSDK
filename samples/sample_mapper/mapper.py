@@ -1,7 +1,7 @@
 """Sample inline mapper that applies stream_maps config to Singer messages."""
 
 import logging
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable
 
 import singer
 

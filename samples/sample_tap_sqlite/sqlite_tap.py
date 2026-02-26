@@ -1,6 +1,6 @@
 """Sample tap that reads from a SQLite database."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import sqlalchemy
 from hotglue_singer_sdk.streams import SQLStream

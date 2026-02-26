@@ -1,7 +1,5 @@
 """Sample target that writes to a SQLite database."""
 
-from typing import Any, Dict
-
 from hotglue_singer_sdk import typing as th
 from hotglue_singer_sdk.sinks.sql import SQLSink
 from hotglue_singer_sdk.target_base import SQLTarget

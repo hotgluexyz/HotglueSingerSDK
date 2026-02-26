@@ -1,7 +1,5 @@
 """Sample target that writes streams to Parquet files."""
 
-from typing import Dict, Optional
-
 import pandas as pd
 
 from hotglue_singer_sdk import typing as th
