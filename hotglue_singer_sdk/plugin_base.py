@@ -120,7 +120,7 @@ class PluginBase(metaclass=abc.ABCMeta):
                 config_dict[k] = SecretString(v)
         self._config = config_dict
         self._validate_config(raise_errors=validate_config)
-        self.mapper: PluginMapper
+        self.mapper: Optional[PluginMapper] = None
 
     @classproperty
     def capabilities(self) -> List[CapabilitiesEnum]:
