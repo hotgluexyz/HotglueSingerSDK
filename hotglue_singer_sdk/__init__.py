@@ -21,6 +21,7 @@ __all__ = [
     "PluginBase",
     "RecordSink",
     "RESTStream",
+    "AsyncRESTStream",
     "Sink",
     "SQLConnector",
     "SQLSink",
