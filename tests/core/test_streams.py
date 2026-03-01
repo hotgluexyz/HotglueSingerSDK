@@ -8,7 +8,7 @@ import pytest
 import requests
 
 from hotglue_singer_sdk.helpers._classproperty import classproperty
-from hotglue_singer_sdk.helpers._singer import Catalog, CatalogEntry, MetadataMapping
+from hotglue_singer_sdk.helpers._singer import Catalog, MetadataMapping
 from hotglue_singer_sdk.helpers.jsonpath import _compile_jsonpath
 from hotglue_singer_sdk.streams.core import (
     REPLICATION_FULL_TABLE,

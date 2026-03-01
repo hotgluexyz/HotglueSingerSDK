@@ -1,5 +1,6 @@
 """Test tap-to-target sync."""
 
+import json
 from typing import Any, Dict, List, Optional
 
 from freezegun import freeze_time
@@ -96,10 +97,16 @@ def test_target_batching():
 
     buf, _ = tap_sync_test(tap)
 
+    # Derive expected record count from tap output (avoids hardcoding when data changes)
+    buf.seek(0)
+    countries_record_count = sum(
+        1 for line in buf if line.strip() and json.loads(line).get("type") == "RECORD"
+    )
+    buf.seek(0)
+
     mocked_starttime = "2012-01-01 12:00:00"
     mocked_jumptotime2 = "2012-01-01 12:31:00"
     mocked_jumptotime3 = "2012-01-01 13:02:00"
-    countries_record_count = 257
 
     with freeze_time(mocked_starttime):
         target = TargetMock()

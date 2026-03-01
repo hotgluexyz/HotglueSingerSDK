@@ -416,6 +416,21 @@ class MappedStream(Stream):
         }
 
 
+def _mapped_stream_catalog_dict() -> dict:
+    """Minimal catalog containing mystream so that Tap builds mapper from config."""
+    return {
+        "streams": [
+            {
+                "stream": "mystream",
+                "tap_stream_id": "mystream",
+                "schema": MappedStream.schema,
+                "key_properties": [],
+                "metadata": [],
+            },
+        ]
+    }
+
+
 class MappedTap(Tap):
     """A tap with mapped streams."""
 
@@ -580,6 +595,7 @@ def test_mapped_stream(
             "flattening_max_depth": flatten_max_depth,
         }
     )
+    tap.register_streams_from_catalog(_mapped_stream_catalog_dict())
     stream = tap.streams["mystream"]
 
     schema_messages = list(stream._generate_schema_messages())

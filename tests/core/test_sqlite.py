@@ -9,6 +9,7 @@ from typing import Dict, cast
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
 
 from samples.sample_tap_sqlite import SQLiteConnector, SQLiteTap
 from samples.sample_target_csv.csv_target import SampleTargetCSV
@@ -49,13 +50,13 @@ def sqlite_connector(sqlite_sample_db_config) -> SQLiteConnector:
 def sqlite_sample_db(sqlite_connector):
     """Return a path to a newly constructed sample DB."""
     for t in range(3):
-        sqlite_connector.connection.execute(f"DROP TABLE IF EXISTS t{t}")
+        sqlite_connector.connection.execute(text(f"DROP TABLE IF EXISTS t{t}"))
         sqlite_connector.connection.execute(
-            f"CREATE TABLE t{t} (c1 int PRIMARY KEY, c2 varchar(10))"
+            text(f"CREATE TABLE t{t} (c1 int PRIMARY KEY, c2 varchar(10))")
         )
         for x in range(100):
             sqlite_connector.connection.execute(
-                f"INSERT INTO t{t} VALUES ({x}, 'x={x}')"
+                text(f"INSERT INTO t{t} VALUES ({x}, 'x={x}')")
             )
 
 

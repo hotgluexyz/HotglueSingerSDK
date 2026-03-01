@@ -1,0 +1,1 @@
+# Sample inline mapper.

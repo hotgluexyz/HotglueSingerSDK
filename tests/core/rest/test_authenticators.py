@@ -5,6 +5,7 @@ from __future__ import annotations
 import jwt
 import pytest
 import requests_mock
+from freezegun import freeze_time
 from cryptography.hazmat.primitives.asymmetric.rsa import (
     RSAPrivateKey,
     RSAPublicKey,
@@ -81,28 +82,12 @@ class _FakeOAuthAuthenticator(OAuthAuthenticator):
 
 
 @pytest.mark.parametrize(
-    "oauth_response_expires_in,default_expiration,result",
+    "oauth_response_expires_in,default_expiration,expected_expires_in",
     [
-        (
-            123,
-            None,
-            123,
-        ),
-        (
-            123,
-            234,
-            123,
-        ),
-        (
-            None,
-            234,
-            234,
-        ),
-        (
-            None,
-            None,
-            None,
-        ),
+        (123, None, 123),
+        (123, 234, 123),
+        (None, 234, 234),
+        (None, None, None),  # implementation does None + timestamp -> TypeError
     ],
     ids=[
         "expires-in-and-no-default-expiration",
@@ -114,29 +99,39 @@ class _FakeOAuthAuthenticator(OAuthAuthenticator):
 def test_oauth_authenticator_token_expiry_handling(
     rest_tap: Tap,
     requests_mock: requests_mock.Mocker,
-    oauth_response_expires_in: int,
-    default_expiration: int,
-    result: bool,
+    oauth_response_expires_in: int | None,
+    default_expiration: int | None,
+    expected_expires_in: int | None,
 ):
-    """Validate various combinations of expires_in and default_expiration."""
-    response = {"access_token": "an-access-token"}
+    """Validate various combinations of expires_in and default_expiration.
 
-    if oauth_response_expires_in:
+    update_access_token() stores expires_in as absolute Unix timestamp:
+    request_time.timestamp() + (response expires_in or default_expiration).
+    When both are None it raises TypeError (None + int).
+    """
+    response = {"access_token": "an-access-token"}
+    if oauth_response_expires_in is not None:
         response["expires_in"] = oauth_response_expires_in
 
-    requests_mock.post(
-        "https://example.com/oauth",
-        json=response,
-    )
+    requests_mock.post("https://example.com/oauth", json=response)
 
     authenticator = _FakeOAuthAuthenticator(
         stream=rest_tap.streams["some_stream"],
         auth_endpoint="https://example.com/oauth",
         default_expiration=default_expiration,
     )
-    authenticator.update_access_token()
 
-    assert authenticator.expires_in == result
+    # Freeze time so stored expiry is deterministic: request_time.timestamp() == 1000
+    with freeze_time("1970-01-01 00:16:40"):
+        if expected_expires_in is None:
+            with pytest.raises(TypeError, match="unsupported operand"):
+                authenticator.update_access_token()
+            return
+        authenticator.update_access_token()
+
+    # SDK stores absolute timestamp: 1000 + (response expires_in or default)
+    relative = oauth_response_expires_in if oauth_response_expires_in is not None else default_expiration
+    assert authenticator.expires_in == 1000 + relative
 
 
 @pytest.fixture

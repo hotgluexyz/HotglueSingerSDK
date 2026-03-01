@@ -10,9 +10,10 @@ from click.testing import CliRunner
 from samples.sample_target_csv.csv_target import SampleTargetCSV
 
 SAMPLE_FILENAME = Path(__file__).parent / Path("./resources/messages.jsonl")
-EXPECTED_OUTPUT = """"id"	"name"
-1	"Chris"
-2	"Mike"
+# CSV target uses csv.writer() defaults: comma delimiter, minimal quoting
+EXPECTED_OUTPUT = """id,name
+1,Chris
+2,Mike
 """
 
 

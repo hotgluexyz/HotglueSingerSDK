@@ -483,9 +483,10 @@ class OAuthAuthenticator(APIAuthenticatorBase):
             self._tap.logger.info(f"Latest refresh token: {token_json.get('refresh_token')}")
             self._tap._config["refresh_token"] = token_json["refresh_token"]
 
-        # Write the updated config back to the file
-        with open(self._tap.config_file, "w") as outfile:
-            json.dump(self._tap._config, outfile, indent=4)
+        # Write the updated config back to the file (only when config was loaded from a path)
+        if self._tap.config_file is not None:
+            with open(self._tap.config_file, "w") as outfile:
+                json.dump(self._tap._config, outfile, indent=4)
 
 class OAuthJWTAuthenticator(OAuthAuthenticator):
     """API Authenticator for OAuth 2.0 flows which utilize a JWT refresh token."""
