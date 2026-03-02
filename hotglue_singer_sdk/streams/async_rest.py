@@ -16,16 +16,16 @@ class AsyncRESTStream(RESTStream):
 
     def _get_records_for_window(self, window_context: dict) -> list[dict]:
         """Run one async export job for a single paging window context."""
-        job_id = self.create_async_job(window_context)
+        job_metadata = self.create_async_job(window_context)
         polling_attempt = 0
         while True:
-            job_status = self.get_async_job_status(job_id)
+            job_status = self.get_async_job_status(job_metadata)
             if job_status == AsyncJobStatus.COMPLETED:
                 break
-            time.sleep(self.get_polling_interval_seconds(window_context, polling_attempt))
+            time.sleep(self.get_polling_interval_seconds(job_metadata, polling_attempt))
             polling_attempt += 1
 
-        job_response = self.get_async_job_results(job_id)
+        job_response = self.get_async_job_results(job_metadata)
         return list(self.generate_records_from_job_response(job_response))
 
     def make_request(
@@ -53,10 +53,10 @@ class AsyncRESTStream(RESTStream):
     def create_async_job(self, context: dict | None = None) -> dict:
         pass
 
-    def get_async_job_status(self, job_id: Any) -> AsyncJobStatus:
+    def get_async_job_status(self, job_metadata: dict) -> AsyncJobStatus:
         pass
 
-    def get_async_job_results(self, job_id: Any) -> dict:
+    def get_async_job_results(self, job_metadata: dict) -> dict:
         pass
 
     def generate_records_from_job_response(self, job_response: dict) -> Iterable[dict]:
