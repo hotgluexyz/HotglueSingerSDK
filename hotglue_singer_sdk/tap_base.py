@@ -1,6 +1,7 @@
 """Tap abstract class."""
 
 import abc
+import copy
 import json
 import sys
 import threading
@@ -26,7 +27,7 @@ from hotglue_singer_sdk.helpers.capabilities import (
 )
 from hotglue_singer_sdk.mapper import PluginMapper
 from hotglue_singer_sdk.plugin_base import PluginBase
-from hotglue_singer_sdk.streams import SQLStream, Stream
+from hotglue_singer_sdk.streams import RESTStream, SQLStream, Stream
 from hotglue_etl_exceptions import InvalidCredentialsError
 
 STREAM_MAPS_CONFIG = "stream_maps"
@@ -221,6 +222,136 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                 stream.sync()
             except MaxRecordsLimitException:
                 pass
+        return True
+
+    def _resolve_test_stream(self, stream_id: str) -> RESTStream:
+        """Look up a stream by name or tap_stream_id and assert it is a REST stream.
+
+        Args:
+            stream_id: The name or tap_stream_id of the stream.
+
+        Returns:
+            The matching RESTStream instance.
+
+        Raises:
+            ValueError: If no stream matching stream_id is found.
+            click.UsageError: If the stream is not a REST stream.
+        """
+        stream = self.streams.get(stream_id) or next(
+            (s for s in self.streams.values() if s.tap_stream_id == stream_id),
+            None,
+        )
+        if stream is None:
+            raise ValueError(
+                f"Stream '{stream_id}' was not found. "
+                f"Available streams: {list(self.streams.keys())}"
+            )
+        if not isinstance(stream, RESTStream):
+            raise click.UsageError(
+                f"Stream '{stream_id}' is not a REST stream. "
+                "Only REST streams are supported by --test-stream."
+            )
+        return stream
+
+    @final
+    def run_test_stream(
+        self,
+        stream_id: str,
+        request_only: bool = False,
+        pages: int = 1,
+    ) -> bool:
+        """Entry point for --test-stream. Routes to the appropriate sub-function.
+
+        Args:
+            stream_id: The name or tap_stream_id of the stream to test.
+            request_only: If True, delegate to ``run_test_stream_request`` to return
+                the raw HTTP response payload. Otherwise delegate to
+                ``run_test_stream_pages``.
+            pages: Number of pages to fetch. Passed through to
+                ``run_test_stream_pages``; ignored when ``request_only`` is True.
+
+        Returns:
+            True if the operation completed successfully.
+        """
+        if request_only:
+            return self.run_test_stream_request(stream_id)
+        return self.run_test_stream_pages(stream_id, pages=pages)
+
+    @final
+    def run_test_stream_request(self, stream_id: str) -> bool:
+        """Make a single raw HTTP request for a stream and print the response to STDOUT.
+
+        Prints a JSON object containing ``status_code``, ``headers``, and ``body``.
+        On a network-level error the object will contain an ``error`` key instead.
+
+        Args:
+            stream_id: The name or tap_stream_id of the stream to test.
+
+        Returns:
+            True if the method completed (regardless of HTTP status).
+        """
+        stream = self._resolve_test_stream(stream_id)
+        prepared_request = stream.prepare_request(context=None, next_page_token=None)
+        try:
+            response = stream.requests_session.send(
+                prepared_request, timeout=stream.timeout
+            )
+            try:
+                body: Any = response.json()
+            except Exception:
+                body = response.text
+            print(
+                json.dumps(
+                    {
+                        "status_code": response.status_code,
+                        "headers": dict(response.headers),
+                        "body": body,
+                    },
+                    indent=2,
+                    default=str,
+                )
+            )
+        except Exception as exc:
+            print(json.dumps({"error": str(exc)}, indent=2))
+        return True
+
+    @final
+    def run_test_stream_pages(self, stream_id: str, pages: int = 1) -> bool:
+        """Fetch one or more pages of parsed records for a stream and print to STDOUT.
+
+        Uses the stream's own request machinery (authentication, backoff, parsing, and
+        post-processing) and prints all collected records as a JSON array.
+
+        Args:
+            stream_id: The name or tap_stream_id of the stream to test.
+            pages: Maximum number of pages to fetch (default 1).
+
+        Returns:
+            True if the request succeeded.
+        """
+        try:
+            stream = self._resolve_test_stream(stream_id)
+            decorated_request = stream.request_decorator(stream._request)
+            next_page_token: Any = None
+            all_records: List[dict] = []
+            for _ in range(pages):
+                prepared_request = stream.prepare_request(
+                    context=None, next_page_token=next_page_token
+                )
+                resp = decorated_request(prepared_request, None)
+                for raw_record in stream.parse_response(resp):
+                    processed = stream.post_process(raw_record, None)
+                    if processed is not None:
+                        all_records.append(processed)
+                previous_token = copy.deepcopy(next_page_token)
+                next_page_token = stream.get_next_page_token(
+                    response=resp, previous_token=previous_token
+                )
+                if not next_page_token:
+                    break
+            print(json.dumps(all_records, indent=2, default=str))
+        except Exception as exc:
+            print(json.dumps({"status": "error", "error": str(exc)}, indent=2))
         return True
 
     @final
@@ -478,6 +609,38 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             is_flag=True,
             help="Refresh the OAuth access token and update the config file.",
         )
+        @click.option(
+            "--test-stream",
+            "test_stream",
+            is_flag=True,
+            help="Fetch records for the stream specified by --stream.",
+        )
+        @click.option(
+            "--stream",
+            "request_stream_id",
+            default=None,
+            type=click.STRING,
+            help="The stream name or tap_stream_id to request when using --test-stream.",
+        )
+        @click.option(
+            "--request-only",
+            "request_only",
+            is_flag=True,
+            help=(
+                "With --test-stream: return the raw HTTP response payload (or error "
+                "info) instead of parsed Singer records. REST streams only."
+            ),
+        )
+        @click.option(
+            "--pages",
+            "pages",
+            default=1,
+            type=click.INT,
+            help=(
+                "With --test-stream: number of pages to fetch and return as parsed "
+                "Singer records (default: 1)."
+            ),
+        )
         @click.command(
             help="Execute the Singer tap.",
             context_settings={"help_option_names": ["--help"]},
@@ -492,6 +655,10 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             catalog: str = None,
             format: str = None,
             access_token: bool = False,
+            test_stream: bool = False,
+            request_stream_id: Optional[str] = None,
+            request_only: bool = False,
+            pages: int = 1,
         ) -> None:
             """Handle command line execution.
 
@@ -506,9 +673,17 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                 catalog: Use a Singer catalog file with the tap.",
                 state: Use a bookmarks file for incremental replication.
                 access_token: Refresh the OAuth access token and update the config.
+                test_stream: Activate stream test mode (requires --stream).
+                request_stream_id: The stream name or tap_stream_id to request when
+                    using --test-stream.
+                request_only: Return raw HTTP response payload instead of parsed
+                    records (REST streams only, used with --test-stream).
+                pages: Number of pages to fetch when using --test-stream
+                    (default: 1).
 
             Raises:
                 FileNotFoundError: If the config file does not exist.
+                click.UsageError: If --test-stream is used without --stream.
             """
             if version:
                 cls.print_version()
@@ -553,7 +728,17 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             if access_token:
                 return cls.fetch_access_token(connector=tap)
 
-            if discover:
+            if test_stream:
+                if not request_stream_id:
+                    raise click.UsageError(
+                        "--test-stream requires --stream <stream_id>."
+                    )
+                tap.run_test_stream(
+                    request_stream_id,
+                    request_only=request_only,
+                    pages=pages,
+                )
+            elif discover:
                 tap.register_streams_from_catalog(catalog)
                 tap.register_state_from_file(state)
                 tap.run_discovery()
