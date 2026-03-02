@@ -48,7 +48,9 @@ class AsyncRESTStream(RESTStream):
             data=data,
         )
         decorated_request = self.request_decorator(self._request)
-        return decorated_request(prepared_request, context)
+        response = decorated_request(prepared_request, context)
+        self.validate_response(response)
+        return response
 
     def create_async_job(self, context: dict | None = None) -> dict:
         pass
