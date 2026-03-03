@@ -83,7 +83,7 @@ class AsyncRESTStream(RESTStream):
         max_workers = min(len(window_contexts), max(1, self.parallelization_limit))
 
         if max_workers <= 1:
-            for window_context in window_contexts[0:]:
+            for window_context in window_contexts:
                 for record in self._get_records_for_window(window_context):
                     yield self.post_process(record, window_context)
             return
