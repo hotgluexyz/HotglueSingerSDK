@@ -22,7 +22,7 @@ class AsyncRESTStream(RESTStream):
             job_status = self.get_async_job_status(job_metadata)
             if job_status == AsyncJobStatus.COMPLETED:
                 break
-            time.sleep(self.get_polling_interval_seconds(job_metadata, polling_attempt))
+            time.sleep(self.get_polling_interval_seconds(window_context, polling_attempt))
             polling_attempt += 1
 
         job_response = self.get_async_job_results(job_metadata)
@@ -54,7 +54,6 @@ class AsyncRESTStream(RESTStream):
         )
         decorated_request = self.request_decorator(self._request)
         response = decorated_request(prepared_request, context)
-        self.validate_response(response)
         return response
 
     def create_async_job(self, context: dict | None = None) -> dict:
