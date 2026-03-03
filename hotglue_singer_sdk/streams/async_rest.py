@@ -85,7 +85,7 @@ class AsyncRESTStream(RESTStream):
         if max_workers <= 1:
             for window_context in window_contexts[0:]:
                 for record in self._get_records_for_window(window_context):
-                    yield record
+                    yield self.post_process(record, window_context)
             return
 
         with concurrent.futures.ThreadPoolExecutor(
@@ -97,4 +97,4 @@ class AsyncRESTStream(RESTStream):
             ]
             for future in futures:
                 for record in future.result():
-                    yield record
+                    yield self.post_process(record, window_context)
