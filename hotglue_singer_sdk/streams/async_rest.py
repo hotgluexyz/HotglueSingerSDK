@@ -26,7 +26,12 @@ class AsyncRESTStream(RESTStream):
             polling_attempt += 1
 
         job_response = self.get_async_job_results(job_metadata)
-        return list(self.generate_records_from_job_response(job_response))
+        records = []
+        for record in self.generate_records_from_job_response(job_response):
+            transformed_record = self.post_process(record, window_context)
+            if transformed_record is not None:
+                records.append(transformed_record)
+        return records
 
     def make_request(
         self,
@@ -85,7 +90,7 @@ class AsyncRESTStream(RESTStream):
         if max_workers <= 1:
             for window_context in window_contexts:
                 for record in self._get_records_for_window(window_context):
-                    yield self.post_process(record, window_context)
+                    yield record
             return
 
         with concurrent.futures.ThreadPoolExecutor(
@@ -97,4 +102,4 @@ class AsyncRESTStream(RESTStream):
             ]
             for future in futures:
                 for record in future.result():
-                    yield self.post_process(record, window_context)
+                    yield record
