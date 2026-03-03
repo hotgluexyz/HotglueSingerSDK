@@ -50,3 +50,7 @@ class TapStreamConnectionFailure(Exception):
 
 class TooManyRecordsException(Exception):
     """Exception to raise when query returns more records than max_records."""
+
+
+class AsyncJobPollingTimeoutException(Exception):
+    """Exception to raise when async job polling timed out."""

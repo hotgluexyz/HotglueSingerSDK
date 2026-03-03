@@ -6,22 +6,30 @@ from typing import Any, Iterable
 
 import requests
 
+from hotglue_singer_sdk.exceptions import AsyncJobPollingTimeoutException
 from hotglue_singer_sdk.streams.rest import RESTStream
 from hotglue_singer_sdk.typing import AsyncJobStatus
+
 
 
 class AsyncRESTStream(RESTStream):
 
     parallelization_limit: int = 1
+    job_polling_timeout_seconds: int = 3000
 
     def _get_records_for_window(self, window_context: dict) -> list[dict]:
         """Run one async export job for a single paging window context."""
         job_metadata = self.create_async_job(window_context)
         polling_attempt = 0
+        start_time = time.time()
         while True:
             job_status = self.get_async_job_status(job_metadata)
             if job_status == AsyncJobStatus.COMPLETED:
                 break
+            if time.time() - start_time > self.job_polling_timeout_seconds:
+                raise AsyncJobPollingTimeoutException(
+                    f"Async job polling timed out after {self.job_polling_timeout_seconds} seconds"
+                )
             time.sleep(self.get_polling_interval_seconds(window_context, polling_attempt))
             polling_attempt += 1
 
