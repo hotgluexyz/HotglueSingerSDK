@@ -55,6 +55,8 @@ if sys.version_info >= (3, 10):
 else:
     from typing_extensions import TypeAlias
 
+from enum import Enum
+
 __all__ = [
     "extend_validator_with_defaults",
     "to_jsonschema_type",
@@ -84,6 +86,7 @@ __all__ = [
     "ObjectType",
     "CustomType",
     "PropertiesList",
+    "AsyncJobStatus",
 ]
 
 _JsonValue: TypeAlias = Union[
@@ -601,3 +604,8 @@ def to_sql_type(jsonschema_type: dict) -> sqlalchemy.types.TypeEngine:
         return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
 
     return cast(sqlalchemy.types.TypeEngine, sqlalchemy.types.VARCHAR())
+
+
+class AsyncJobStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
