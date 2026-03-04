@@ -504,7 +504,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
             )
 
         self.access_token = token_json["access_token"]
-        self.expires_in = int(token_json["expires_in"])
+        self.expires_in = int(token_json["expires_in"]) + int(request_time.timestamp())
         self.last_refreshed = request_time
 
         self._tap._config["access_token"] = token_json["access_token"]

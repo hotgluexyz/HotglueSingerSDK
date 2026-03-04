@@ -199,7 +199,7 @@ def test_oauth_authenticator_hg_access_token_refresh(
         json={
             "success": True,
             "access_token": "hg-token",
-            "expires_in": 1111111111,
+            "expires_in": 3600,
         },
     )
 
@@ -207,10 +207,12 @@ def test_oauth_authenticator_hg_access_token_refresh(
         stream=rest_tap.streams["some_stream"],
         auth_endpoint="https://example.com/oauth",
     )
-    authenticator.update_access_token()
+
+    with freeze_time("1970-01-01 00:16:40"):
+        authenticator.update_access_token()
 
     assert rest_tap.config["access_token"] == "hg-token"
-    assert rest_tap.config["expires_in"] == 1111111111
+    assert rest_tap.config["expires_in"] == 1000 + 3600
     assert rest_tap.config["refresh_token"] == "keep-me"
     assert requests_mock.last_request.qs == {"include_properties": ["expires_in"]}
     assert requests_mock.last_request.headers["x-api-key"] == "secret-key"
