@@ -200,7 +200,6 @@ def test_oauth_authenticator_hg_access_token_refresh(
             "success": True,
             "access_token": "hg-token",
             "expires_in": 1111111111,
-            "refresh_token": "should-not-be-used",
         },
     )
 
@@ -253,6 +252,14 @@ def test_oauth_authenticator_local_refresh_when_hg_flag_not_true(
         "https://example.com/oauth",
         json={"access_token": "local-token", "expires_in": 123},
     )
+    hg_request = requests_mock.get(
+        "https://api.hotglue.com/env-1/flow-1/tenant-1/connectors/tap-salesforce/accesstoken",
+        json={"success": True, "access_token": "should-not-be-used", "expires_in": 9999999999},
+    )
+    local_request = requests_mock.post(
+        "https://example.com/oauth",
+        json={"access_token": "local-token", "expires_in": 123},
+    )
 
     authenticator = _FakeOAuthAuthenticator(
         stream=rest_tap.streams["some_stream"],
@@ -262,3 +269,5 @@ def test_oauth_authenticator_local_refresh_when_hg_flag_not_true(
 
     assert rest_tap.config["access_token"] == "local-token"
     assert isinstance(rest_tap.config["expires_in"], int)
+    assert hg_request.call_count == 0
+    assert local_request.call_count == 1

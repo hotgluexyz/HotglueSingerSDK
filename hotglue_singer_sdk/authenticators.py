@@ -520,7 +520,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         Raises:
             RuntimeError: When OAuth login fails.
         """
-        if self.config.get("_refresh_token_via_hg_api") is True:
+        if self.config.get("_refresh_token_via_hg_api", False) is True:
             self._update_access_token_via_hg_api()
             return
 
