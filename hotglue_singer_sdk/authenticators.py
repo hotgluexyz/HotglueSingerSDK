@@ -523,6 +523,11 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         if self.config.get("_refresh_token_via_hg_api", False) is True:
             self._update_access_token_via_hg_api()
             return
+        
+        self.update_access_token_locally()
+
+    def update_access_token_locally(self) -> None:
+        """Update `access_token` locally."""
 
         request_time = utc_now()
         auth_request_payload = self.oauth_request_payload
