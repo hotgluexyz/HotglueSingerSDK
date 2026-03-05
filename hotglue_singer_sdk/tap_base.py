@@ -643,6 +643,18 @@ class SQLTap(Tap):
         return result
 
 
+def extract_tap_instance_from_traceback(exc_traceback):
+    tb = exc_traceback
+    tap_instance = None
+    while tb is not None:
+        if "self" in tb.tb_frame.f_locals:
+            if isinstance(tb.tb_frame.f_locals['self'], Tap):
+                tap_instance = tb.tb_frame.f_locals['self']
+                break
+        tb = tb.tb_next
+    return tap_instance
+
+
 def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
     """
     Global handler for all unhandled exceptions.
@@ -655,14 +667,7 @@ def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
         return
 
     try:
-        tb = exc_traceback
-        tap_instance = None
-        while tb is not None:
-            if "self" in tb.tb_frame.f_locals:
-                if isinstance(tb.tb_frame.f_locals['self'], Tap):
-                    tap_instance = tb.tb_frame.f_locals['self']
-                    break
-            tb = tb.tb_next
+        tap_instance = extract_tap_instance_from_traceback(exc_traceback)
 
         exc_type_name = exc_type.__name__
         exc_message = str(exc_value) if exc_value else None
