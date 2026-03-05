@@ -74,7 +74,7 @@ class Rest:
         """
         return 5
 
-    def backoff_handler(self) -> None:
+    def backoff_handler(self, details: dict) -> None:
         """Called before each retry. Override to log or add behaviour."""
         pass
 
