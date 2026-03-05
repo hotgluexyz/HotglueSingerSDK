@@ -38,6 +38,8 @@ from hotglue_singer_sdk.helpers.capabilities import (
 )
 from hotglue_singer_sdk.mapper import PluginMapper
 from hotglue_singer_sdk.typing import extend_validator_with_defaults
+from hotglue_etl_exceptions import InvalidCredentialsError
+
 
 SDK_PACKAGE_NAME = "hotglue_singer_sdk"
 
@@ -50,6 +52,9 @@ class PluginBase(metaclass=abc.ABCMeta):
 
     name: str  # The executable name of the tap or target plugin.
     alerting_level: AlertingLevel = AlertingLevel.NONE
+    exception_alerting_level_map: Dict[Type[Exception], AlertingLevel] = {
+        InvalidCredentialsError: AlertingLevel.NONE,
+    }
 
     config_jsonschema: dict = {}
     # A JSON Schema object defining the config options that this tap will accept.
