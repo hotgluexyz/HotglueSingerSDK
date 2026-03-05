@@ -1,6 +1,5 @@
 """Hotglue target sink class, which handles writing streams."""
 
-import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union, TypeVar, Generator
 
