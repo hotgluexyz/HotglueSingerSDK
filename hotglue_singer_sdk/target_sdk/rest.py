@@ -1,5 +1,7 @@
 """Hotglue target sink class, which handles writing streams."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union, TypeVar, Generator
 
