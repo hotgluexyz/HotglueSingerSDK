@@ -1,16 +1,19 @@
 """Hotglue target sink class, which handles writing streams."""
 
+import logging
 from datetime import datetime
+from typing import Any, Callable, Dict, Optional, Tuple, Type, Union, TypeVar, Generator
 
 import backoff
 import requests
 import json
-from typing import Any, Dict, Optional
+
 from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
 from hotglue_singer_sdk.target_sdk.auth import Authenticator
 from hotglue_singer_sdk.target_sdk.common import HGJSONEncoder
 
-
+_T = TypeVar("_T")
+_MaybeCallable = Union[_T, Callable[[], _T]]
 class Rest:
     timeout: int = 300
     http_headers: Dict[str, Any] = {}
@@ -26,12 +29,55 @@ class Rest:
 
         return headers
 
-    @backoff.on_exception(
-        backoff.expo,
-        (RetriableAPIError, requests.exceptions.ReadTimeout),
-        max_tries=5,
-        factor=2,
-    )
+    def request_decorator(self, func: Callable) -> Callable:
+        """Instantiate a decorator for handling request failures.
+
+        Uses a wait generator from `backoff_wait_generator`, exception types from
+        `backoff_exceptions`, try limit from `backoff_max_tries`, and calls
+        `backoff_handler` before retrying. Override any of these in a child class
+        to customize backoff behaviour.
+        """
+        decorator: Callable = backoff.on_exception(
+            self.backoff_wait_generator,
+            self.backoff_exceptions(),
+            max_tries=self.backoff_max_tries,
+            on_backoff=self.backoff_handler,
+        )(func)
+        return decorator
+
+    def backoff_wait_generator(self) -> Callable[..., Generator[int, Any, None]]:
+        """The wait generator used by the backoff decorator on request failure.
+
+        See for options:
+        https://github.com/litl/backoff/blob/master/backoff/_wait_gen.py
+
+        And see for examples: `Code Samples <../code_samples.html#custom-backoff>`_
+
+        Returns:
+            The wait generator
+        """
+        return backoff.expo(factor=2)  # type: ignore # ignore 'Returning Any'
+
+    def backoff_exceptions(self) -> Tuple[Type[Exception], ...]:
+        """Exception types that trigger a retry. Override to add or change."""
+        return (RetriableAPIError, requests.exceptions.ReadTimeout)
+
+    def backoff_max_tries(self) -> _MaybeCallable[int] | None:
+        """The number of attempts before giving up when retrying requests.
+
+        Can be an integer, a zero-argument callable that returns an integer,
+        or ``None`` to retry indefinitely.
+
+        Returns:
+            int | Callable[[], int] | None: Number of max retries, callable or
+            ``None``.
+        """
+        return 5
+
+    def backoff_handler(self) -> None:
+        """Called before each retry. Override to log or add behaviour."""
+        pass
+
     def _request(
         self, http_method, endpoint, params={}, request_data=None, headers={}, verify=True
     ) -> requests.PreparedRequest:
@@ -59,8 +105,10 @@ class Rest:
 
     def request_api(self, http_method, endpoint=None, params={}, request_data=None, headers={}, verify=True):
         """Request records from REST endpoint(s), returning response records."""
-        resp = self._request(http_method, endpoint, params, request_data, headers, verify=verify)
-        return resp
+        decorated_request = self.request_decorator(self._request)
+        return decorated_request(
+            http_method, endpoint, params=params, request_data=request_data, headers=headers, verify=verify
+        )
 
     def validate_response(self, response: requests.Response) -> None:
         """Validate HTTP response."""
