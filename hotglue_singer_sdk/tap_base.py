@@ -28,7 +28,7 @@ from hotglue_singer_sdk.helpers.capabilities import (
 from hotglue_singer_sdk.mapper import PluginMapper
 from hotglue_singer_sdk.plugin_base import PluginBase
 from hotglue_singer_sdk.streams import SQLStream, Stream
-
+from hotglue_etl_exceptions import InvalidCredentialsError
 
 STREAM_MAPS_CONFIG = "stream_maps"
 
