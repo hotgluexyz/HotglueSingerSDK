@@ -407,6 +407,16 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
     # Sync methods
 
+    def run(self, catalog: Any = None, state: Any = None) -> None:
+        """Run the tap's sync operation.
+
+        Subclasses that don't use standard Singer streams (e.g. file-based taps)
+        can override this method to implement custom sync logic.
+        """
+        self.register_streams_from_catalog(catalog)
+        self.register_state_from_file(state)
+        self.sync_all()
+
     @final
     def sync_all(self) -> None:
         """Sync all streams."""
@@ -564,9 +574,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             elif test == CliTestOptionValue.Schema.value:
                 tap.write_schemas()
             else:
-                tap.register_streams_from_catalog(catalog)
-                tap.register_state_from_file(state)
-                tap.sync_all()
+                tap.run(catalog=catalog, state=state)
 
         return cli
 
