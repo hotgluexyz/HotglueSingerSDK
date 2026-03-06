@@ -20,6 +20,7 @@ from hotglue_singer_sdk.helpers._singer import Catalog
 from hotglue_singer_sdk.helpers._state import write_stream_state
 from hotglue_singer_sdk.helpers._util import read_json_file
 from hotglue_singer_sdk.helpers.capabilities import (
+    AlertingLevel,
     CapabilitiesEnum,
     PluginCapabilities,
     TapCapabilities,
@@ -27,7 +28,8 @@ from hotglue_singer_sdk.helpers.capabilities import (
 from hotglue_singer_sdk.mapper import PluginMapper
 from hotglue_singer_sdk.plugin_base import PluginBase
 from hotglue_singer_sdk.streams import SQLStream, Stream
-from hotglue_etl_exceptions import InvalidCredentialsError
+# this import is used by taps, we need to fix those before removing it
+from hotglue_etl_exceptions import InvalidCredentialsError # noqa: F401
 
 STREAM_MAPS_CONFIG = "stream_maps"
 
@@ -642,6 +644,18 @@ class SQLTap(Tap):
         return result
 
 
+def extract_tap_instance_from_traceback(exc_traceback):
+    tb = exc_traceback
+    tap_instance = None
+    while tb is not None:
+        if "self" in tb.tb_frame.f_locals:
+            if isinstance(tb.tb_frame.f_locals['self'], Tap):
+                tap_instance = tb.tb_frame.f_locals['self']
+                break
+        tb = tb.tb_next
+    return tap_instance
+
+
 def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
     """
     Global handler for all unhandled exceptions.
@@ -654,18 +668,25 @@ def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
         return
 
     try:
-        exc_type_to_log = exc_type
-        if issubclass(exc_type, InvalidCredentialsError):
-            exc_type_to_log = InvalidCredentialsError
+        tap_instance = extract_tap_instance_from_traceback(exc_traceback)
 
-        exc_type_name = exc_type_to_log.__name__
+        exc_type_name = exc_type.__name__
         exc_message = str(exc_value) if exc_value else None
         formatted_traceback = "".join(traceback.format_tb(exc_traceback)) if exc_traceback else None
+        alerting_level = AlertingLevel.ERROR
+
+        if tap_instance and hasattr(tap_instance, "exception_alerting_level_map"):
+            override_alerting_level_exceptions = tap_instance.exception_alerting_level_map.keys()
+            override_alerting_level_exception = next((exception for exception in override_alerting_level_exceptions if issubclass(exc_type, exception)), None)
+
+            if override_alerting_level_exception:
+                alerting_level = tap_instance.exception_alerting_level_map[override_alerting_level_exception]
 
         exc_json = {
             "exception_name": exc_type_name,
             "exception_message": exc_message,
             "exception_traceback": formatted_traceback,
+            "alerting_level": alerting_level.value,
         }
 
         current_thread_id = threading.get_ident()
