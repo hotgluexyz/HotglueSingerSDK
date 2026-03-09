@@ -407,7 +407,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
     # Sync methods
 
-    def run(self, catalog: Any = None, state: Any = None) -> None:
+    def run_sync(self, catalog: Any = None, state: Any = None) -> None:
         """Run the tap's sync operation.
 
         Subclasses that don't use standard Singer streams (e.g. file-based taps)
@@ -574,7 +574,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             elif test == CliTestOptionValue.Schema.value:
                 tap.write_schemas()
             else:
-                tap.run(catalog=catalog, state=state)
+                tap.run_sync(catalog=catalog, state=state)
 
         return cli
 
