@@ -61,7 +61,11 @@ class Rest:
 
     def backoff_exceptions(self) -> Tuple[Type[Exception], ...]:
         """Exception types that trigger a retry. Override to add or change."""
-        return (RetriableAPIError, requests.exceptions.ReadTimeout)
+        return (
+            RetriableAPIError, 
+            requests.exceptions.ReadTimeout, 
+            requests.exceptions.ConnectionError
+        )
 
     def backoff_max_tries(self) -> _MaybeCallable[int] | None:
         """The number of attempts before giving up when retrying requests.
