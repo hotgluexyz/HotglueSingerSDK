@@ -19,6 +19,7 @@ from singer import utils
 
 from hotglue_singer_sdk.helpers._util import utc_now
 from hotglue_singer_sdk.streams import Stream as RESTStreamBase
+from hotglue_etl_exceptions import InvalidCredentialsError
 
 import threading
 
@@ -536,7 +537,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
             token_response.raise_for_status()
             self.logger.info("OAuth authorization attempt was successful.")
         except Exception as ex:
-            raise RuntimeError(
+            raise InvalidCredentialsError(
                 f"Failed OAuth login, response was '{token_response.json()}'. {ex}"
             )
         token_json = token_response.json()
