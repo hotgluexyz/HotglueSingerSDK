@@ -25,7 +25,6 @@ from jsonschema import Draft4Validator, SchemaError, ValidationError
 
 from hotglue_singer_sdk.configuration._dict_config import parse_environment_config
 from hotglue_singer_sdk.exceptions import ConfigValidationError
-from hotglue_etl_exceptions import InvalidCredentialsError
 from hotglue_singer_sdk.helpers._classproperty import classproperty
 from hotglue_singer_sdk.helpers._compat import metadata
 from hotglue_singer_sdk.helpers._secrets import SecretString, is_common_secret_key
@@ -454,8 +453,6 @@ class PluginBase(metaclass=abc.ABCMeta):
             access_token = {"access_token": connector.config.get("access_token")}
             print(json.dumps(dict(access_token), indent=2, default=str))
             return access_token
-        except InvalidCredentialsError:
-            raise
         except Exception as ex:
             print(json.dumps({"error": str(ex)}, indent=2))
 
