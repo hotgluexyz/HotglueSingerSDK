@@ -538,7 +538,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
             self.logger.info("OAuth authorization attempt was successful.")
         except Exception as ex:
             raise InvalidCredentialsError(
-                f"Failed OAuth login, response was '{token_response.json()}'. {ex}"
+                f"Failed OAuth login, response was '{token_response.text}'. {ex}"
             )
         token_json = token_response.json()
         self.access_token = token_json["access_token"]
