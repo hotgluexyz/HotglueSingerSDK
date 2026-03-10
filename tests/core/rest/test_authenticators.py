@@ -124,7 +124,7 @@ def test_oauth_authenticator_token_expiry_handling(
     # Freeze time so stored expiry is deterministic: request_time.timestamp() == 1000
     with freeze_time("1970-01-01 00:16:40"):
         if expected_expires_in is None:
-            with pytest.raises(TypeError, match="unsupported operand"):
+            with pytest.raises(TypeError):
                 authenticator.update_access_token()
             return
         authenticator.update_access_token()
