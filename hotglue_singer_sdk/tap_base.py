@@ -474,6 +474,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         )
         @click.option(
             "--catalog",
+            "--properties",
             help="Use a Singer catalog file with the tap.",
             type=click.Path(),
         )
