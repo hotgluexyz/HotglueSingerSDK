@@ -482,3 +482,26 @@ def test_sync_costs_calculation(tap: SimpleTestTap, caplog):
     for record in caplog.records:
         assert record.levelname == "INFO"
         assert f"Total Sync costs for stream {stream.name}" in record.message
+
+def test_register_streams_from_catalog_twice_catalog_equals_input_catalog():
+    """After register_streams_from_catalog is called multiple times, catalog and input_catalog are the same object (HGI-9926)."""
+    catalog_dict = {
+        "streams": [
+            {
+                "tap_stream_id": "test",
+                "metadata": [
+                    {"breadcrumb": [], "metadata": {"inclusion": "available"}},
+                ],
+                "schema": {"type": "object"},
+            },
+        ],
+    }
+    tap = SimpleTestTap(
+        config={"start_date": CONFIG_START_DATE},
+        catalog=catalog_dict,
+        parse_env_config=False,
+    )
+    # Simulate second call (e.g. from Tap.cli or run_sync)
+    tap.register_streams_from_catalog(catalog_dict)
+    _ = tap.catalog  # force catalog to be computed
+    assert id(tap._input_catalog) == id(tap._catalog) == id(tap.catalog) == id(tap.input_catalog)

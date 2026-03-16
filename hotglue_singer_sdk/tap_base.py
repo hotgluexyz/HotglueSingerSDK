@@ -100,6 +100,8 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         elif catalog is not None:
             self._input_catalog = Catalog.from_dict(read_json_file(catalog))
 
+        self._catalog = None
+        
         # Initialize mapper
         self.mapper: PluginMapper
         self.mapper = PluginMapper(
