@@ -46,22 +46,41 @@ class Metadata:
 
     @classmethod
     def from_dict(cls, value: Dict[str, Any]):
-        """Parse metadata dictionary."""
-        return cls(
-            **{
-                field.name: value.get(field.name.replace("_", "-"))
-                for field in fields(cls)
-            }
-        )
+        """Parse metadata dictionary. Declared fields are set via constructor;
+        any extra keys present on the selected-catalog.json metadate are set on the instance to preserve them.
+        """
+        declared = {
+            field.name.replace("_", "-"): field.name
+            for field in fields(cls)
+        }
+        known_kwargs = {}
+        extra = {}
+        for k, v in value.items():
+            if k in declared:
+                known_kwargs[declared[k]] = v
+            else:
+                extra[k] = v
+
+        instance = cls(**known_kwargs)
+        for k, v in extra.items():
+            setattr(instance, k, v)
+        return instance
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert metadata to a JSON-encodeable dictionary."""
+        """Convert metadata to a JSON-encodeable dictionary. Includes declared
+        fields plus any extra attributes set on the instance.
+        """
         result = {}
+        declared_names = {f.name for f in fields(self)}
 
         for field in fields(self):
             value = getattr(self, field.name)
             if value is not None:
                 result[field.name.replace("_", "-")] = value
+
+        for key, value in vars(self).items():
+            if key not in declared_names and value is not None:
+                result[key] = value
 
         return result
 

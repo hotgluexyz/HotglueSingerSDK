@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 import math
+import os
 from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -18,6 +19,7 @@ from singer import utils
 
 from hotglue_singer_sdk.helpers._util import utc_now
 from hotglue_singer_sdk.streams import Stream as RESTStreamBase
+from hotglue_etl_exceptions import InvalidCredentialsError
 
 import threading
 
@@ -449,12 +451,85 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         """Return the authentication credentials for the request."""
         return None
 
+    def _update_access_token_via_hg_api(self) -> None:
+        """Update token from the Hotglue access token API endpoint."""
+        env_id = os.environ.get("ENV_ID")
+        flow_id = os.environ.get("FLOW")
+        tenant = os.environ.get("TENANT")
+        connector_id = os.environ.get("TAP")
+        api_key = os.environ.get("API_KEY")
+        api_url = os.environ.get("API_URL", "https://api.hotglue.com").rstrip("/")
+
+        required = {
+            "ENV_ID": env_id,
+            "FLOW": flow_id,
+            "TENANT": tenant,
+            "TAP": connector_id,
+            "API_KEY": api_key,
+        }
+        missing = sorted([key for key, value in required.items() if not value])
+        if missing:
+            raise RuntimeError(
+                "Missing required env vars for Hotglue access token refresh: "
+                + ", ".join(missing)
+            )
+
+        request_time = utc_now()
+        endpoint = (
+            f"{api_url}/{env_id}/{flow_id}/{tenant}/connectors/{connector_id}/accesstoken"
+        )
+        token_response = requests.get(
+            endpoint,
+            params={"include_properties": "expires_in"},
+            headers={"x-api-key": api_key},
+        )
+        try:
+            token_response.raise_for_status()
+        except Exception as ex:
+            raise RuntimeError(
+                f"Failed Hotglue access token refresh, response was "
+                f"'{token_response.text}'. {ex}"
+            )
+        token_json = token_response.json()
+        if token_json.get("success") is not True:
+            raise RuntimeError(
+                f"Hotglue access token refresh was not successful: {token_json}"
+            )
+        if token_json.get("access_token") is None:
+            raise RuntimeError(
+                "Hotglue access token refresh response did not include access_token."
+            )
+        if token_json.get("expires_in") is None:
+            raise RuntimeError(
+                "Hotglue access token refresh response did not include expires_in."
+            )
+
+        self.access_token = token_json["access_token"]
+        self.expires_in = int(token_json["expires_in"])
+        self.last_refreshed = request_time
+
+        self._tap._config["access_token"] = token_json["access_token"]
+        self._tap._config["expires_in"] = self.expires_in
+
+        if self._tap.config_file is not None:
+            with open(self._tap.config_file, "w") as outfile:
+                json.dump(self._tap._config, outfile, indent=4)
+
     def update_access_token(self) -> None:
         """Update `access_token` along with: `last_refreshed` and `expires_in`.
 
         Raises:
             RuntimeError: When OAuth login fails.
         """
+        if self.config.get("_refresh_token_via_hg_api", False) is True:
+            self._update_access_token_via_hg_api()
+            return
+        
+        self.update_access_token_locally()
+
+    def update_access_token_locally(self) -> None:
+        """Update `access_token` locally."""
+
         request_time = utc_now()
         auth_request_payload = self.oauth_request_payload
         token_response = requests.post(self.auth_endpoint, data=auth_request_payload, auth=self.request_auth())
@@ -462,12 +537,13 @@ class OAuthAuthenticator(APIAuthenticatorBase):
             token_response.raise_for_status()
             self.logger.info("OAuth authorization attempt was successful.")
         except Exception as ex:
-            raise RuntimeError(
-                f"Failed OAuth login, response was '{token_response.json()}'. {ex}"
+            raise InvalidCredentialsError(
+                f"Failed OAuth login, response was '{token_response.text}'. {ex}"
             )
         token_json = token_response.json()
         self.access_token = token_json["access_token"]
-        self.expires_in = token_json.get("expires_in", self._default_expiration) + int(request_time.timestamp())
+        expires_in = int(token_json.get("expires_in", self._default_expiration))
+        self.expires_in = expires_in + int(request_time.timestamp())
         if self.expires_in is None:
             self.logger.debug(
                 "No expires_in receied in OAuth response and no "
@@ -479,7 +555,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         self._tap._config["access_token"] = token_json["access_token"]
         self._tap._config["expires_in"] = self.expires_in
         if token_json.get("refresh_token"):
-            #Log the refresh_token
+            # Log the refresh_token
             self._tap.logger.info(f"Latest refresh token: {token_json.get('refresh_token')}")
             self._tap._config["refresh_token"] = token_json["refresh_token"]
 

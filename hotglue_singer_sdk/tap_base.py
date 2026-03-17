@@ -102,6 +102,8 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         elif catalog is not None:
             self._input_catalog = Catalog.from_dict(read_json_file(catalog))
 
+        self._catalog = None
+        
         # Initialize mapper
         self.mapper: PluginMapper
         self.mapper = PluginMapper(
@@ -314,7 +316,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
         # Update the access token
         if not auth.is_token_valid():
-            auth.update_access_token()
+            auth.update_access_token_locally()
 
     @final
     def load_streams(self) -> List[Stream]:
@@ -409,6 +411,16 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
     # Sync methods
 
+    def run_sync(self, catalog: Any = None, state: Any = None) -> None:
+        """Run the tap's sync operation.
+
+        Subclasses that don't use standard Singer streams (e.g. file-based taps)
+        can override this method to implement custom sync logic.
+        """
+        self.register_streams_from_catalog(catalog)
+        self.register_state_from_file(state)
+        self.sync_all()
+
     @final
     def sync_all(self) -> None:
         """Sync all streams."""
@@ -466,6 +478,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         )
         @click.option(
             "--catalog",
+            "--properties",
             help="Use a Singer catalog file with the tap.",
             type=click.Path(),
         )
@@ -566,9 +579,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             elif test == CliTestOptionValue.Schema.value:
                 tap.write_schemas()
             else:
-                tap.register_streams_from_catalog(catalog)
-                tap.register_state_from_file(state)
-                tap.sync_all()
+                tap.run_sync(catalog=catalog, state=state)
 
         return cli
 
