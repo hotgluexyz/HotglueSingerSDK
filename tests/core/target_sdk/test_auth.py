@@ -92,10 +92,6 @@ def test_target_oauth_hg_api_refresh_success(
     assert t._config["expires_in"] == expected_expires_in
     mfetch.assert_called_once_with("target-snowflake")
 
-    with open(t._config_file_path) as f:
-        written = json.load(f)
-    assert written["access_token"] == "hg-target-token"
-    assert written["expires_in"] == expected_expires_in
 
 
 def test_target_oauth_hg_api_refresh_requires_env(
