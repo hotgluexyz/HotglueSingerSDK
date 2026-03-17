@@ -109,8 +109,7 @@ class OAuthAuthenticator(Authenticator):
         connector_id = os.environ.get("TARGET")
         token_json = fetch_access_token_from_hotglue_api(connector_id)
         self.access_token = token_json["access_token"]
-        now = round(datetime.utcnow().timestamp())
-        self.expires_in = now + int(token_json["expires_in"])
+        self.expires_in = int(token_json["expires_in"])
 
         self._config["access_token"] = self.access_token
         self._config["expires_in"] = self.expires_in

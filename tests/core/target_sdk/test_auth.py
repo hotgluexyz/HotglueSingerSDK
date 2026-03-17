@@ -72,11 +72,11 @@ def test_target_oauth_hg_api_refresh_success(
     monkeypatch.setenv("API_KEY", "secret-key")
 
     # API returns relative expires_in (seconds from now); code stores now + expires_in
-    relative_expires = 222333444
+    expires_in = 222333444
     token_json = {
         "success": True,
         "access_token": "hg-target-token",
-        "expires_in": relative_expires,
+        "expires_in": expires_in,
     }
 
     with patch(
@@ -87,9 +87,8 @@ def test_target_oauth_hg_api_refresh_success(
         auth.update_access_token()
 
     assert t._config["access_token"] == "hg-target-token"
-    # now=1000 (frozen), so expires_in = 1000 + relative_expires
-    expected_expires_in = 1000 + relative_expires
-    assert t._config["expires_in"] == expected_expires_in
+
+    assert t._config["expires_in"] == expires_in
     mfetch.assert_called_once_with("target-snowflake")
 
 
