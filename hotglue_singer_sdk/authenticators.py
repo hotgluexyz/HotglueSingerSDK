@@ -466,10 +466,6 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         self._tap._config["access_token"] = token_json["access_token"]
         self._tap._config["expires_in"] = self.expires_in
 
-        if self._tap.config_file is not None:
-            with open(self._tap.config_file, "w") as outfile:
-                json.dump(self._tap._config, outfile, indent=4)
-
     def update_access_token(self) -> None:
         """Update `access_token` along with: `last_refreshed` and `expires_in`.
 

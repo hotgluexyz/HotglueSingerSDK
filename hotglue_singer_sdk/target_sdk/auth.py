@@ -115,9 +115,6 @@ class OAuthAuthenticator(Authenticator):
         self._config["access_token"] = self.access_token
         self._config["expires_in"] = self.expires_in
 
-        with open(self._config_file_path, "w") as outfile:
-            json.dump(self._config, outfile, indent=4)
-
     def _update_access_token_locally(self) -> None:
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         self.logger.info(f"Oauth request - endpoint: {self._auth_endpoint}, body: {self.oauth_request_body}")

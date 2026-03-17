@@ -7,8 +7,7 @@ from typing import Any
 
 import requests
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+
 
 def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, Any]:
     """Fetch access token from the Hotglue access token API endpoint.
@@ -46,7 +45,6 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
             "Missing required env vars for Hotglue access token refresh: "
             + ", ".join(missing)
         )
-    logger.debug(f"Fetching access token from Hotglue API for connector: {connector_id}")
     endpoint = (
         f"{api_url}/{env_id}/{flow_id}/{tenant}/connectors/{connector_id}/accesstoken"
     )
