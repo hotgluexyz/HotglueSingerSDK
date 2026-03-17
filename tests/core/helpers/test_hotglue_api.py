@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from urllib.parse import urlparse
 
 from hotglue_singer_sdk.helpers._hotglue_api import fetch_access_token_from_hotglue_api
 
@@ -61,7 +62,8 @@ def test_fetch_access_token_default_api_url(monkeypatch):
         mget.return_value = mock_response
         result = fetch_access_token_from_hotglue_api("conn")
     assert result["access_token"] == "x"
-    assert "api.hotglue.com" in mget.call_args[0][0]
+    parsed_url = urlparse(mget.call_args[0][0])
+    assert parsed_url.hostname == "api.hotglue.com"
 
 
 def test_fetch_access_token_missing_connector_id(monkeypatch):
