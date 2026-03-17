@@ -1,10 +1,13 @@
 import json
+import os
 from abc import abstractmethod
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 import logging
 import requests
+
+from hotglue_singer_sdk.helpers._hotglue_api import fetch_access_token_from_hotglue_api
 
 
 class Authenticator:
@@ -96,6 +99,26 @@ class OAuthAuthenticator(Authenticator):
         return not ((expires_in - now) < 120)
 
     def update_access_token(self) -> None:
+        if self._config.get("_refresh_token_via_hg_api", False) is True:
+            self._update_access_token_via_hg_api()
+            return
+        self._update_access_token_locally()
+
+    def _update_access_token_via_hg_api(self) -> None:
+        """Update token from the Hotglue access token API endpoint."""
+        connector_id = os.environ.get("TARGET")
+        token_json = fetch_access_token_from_hotglue_api(connector_id)
+        self.access_token = token_json["access_token"]
+        now = round(datetime.utcnow().timestamp())
+        self.expires_in = now + int(token_json["expires_in"])
+
+        self._config["access_token"] = self.access_token
+        self._config["expires_in"] = self.expires_in
+
+        with open(self._config_file_path, "w") as outfile:
+            json.dump(self._config, outfile, indent=4)
+
+    def _update_access_token_locally(self) -> None:
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         self.logger.info(f"Oauth request - endpoint: {self._auth_endpoint}, body: {self.oauth_request_body}")
         token_response = requests.post(
