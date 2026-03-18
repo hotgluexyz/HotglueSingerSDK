@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional, Tuple, Type, Union, TypeVar, Generator
+from urllib.parse import urlsplit, urlunsplit
 
 import backoff
 import requests
@@ -136,7 +137,7 @@ class Rest:
 
         return (
             f"{response.status_code} {error_type} Error: "
-            f"{response.reason} for path: {self.endpoint}"
+            f"{response.reason} for url: {urlunsplit(urlsplit(response.url)._replace(query='', fragment=''))}"
         )
 
     @staticmethod
