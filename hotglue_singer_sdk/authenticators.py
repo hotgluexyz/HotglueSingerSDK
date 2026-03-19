@@ -493,14 +493,16 @@ class OAuthAuthenticator(APIAuthenticatorBase):
             )
         token_json = token_response.json()
         self.access_token = token_json["access_token"]
-        expires_in = int(token_json.get("expires_in", self._default_expiration))
-        self.expires_in = expires_in + int(request_time.timestamp())
-        if self.expires_in is None:
+        expires_in = token_json.get("expires_in", self._default_expiration)
+        if expires_in is None:
             self.logger.debug(
                 "No expires_in receied in OAuth response and no "
                 "default_expiration set. Token will be treated as if it never "
                 "expires."
             )
+        else:
+            self.expires_in = int(expires_in) + int(request_time.timestamp())
+
         self.last_refreshed = request_time
         # Update the tap config with the new access_token and refresh_token
         self._tap._config["access_token"] = token_json["access_token"]
