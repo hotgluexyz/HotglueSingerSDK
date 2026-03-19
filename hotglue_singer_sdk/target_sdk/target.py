@@ -512,6 +512,7 @@ class TargetHotglue(Target):
             state: str = None,
             format: str = None,
             file_input: FileIO = None,
+            access_token: bool = False,
         ) -> None:
             """Handle command line execution.
 
@@ -564,6 +565,11 @@ class TargetHotglue(Target):
                 validate_config=validate_config,
                 state=state,
             )
+
+            if access_token:
+                cls.fetch_access_token(target)
+                return
+
 
             target.listen(file_input)
 

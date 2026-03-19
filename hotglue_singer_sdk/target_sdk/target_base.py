@@ -563,7 +563,6 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
             config: Tuple[str, ...] = (),
             format: str = None,
             file_input: FileIO = None,
-            access_token: bool = False,
         ) -> None:
             """Handle command line execution.
 
@@ -615,11 +614,6 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
                 parse_env_config=parse_env_config,
                 validate_config=validate_config,
             )
-
-            if access_token:
-                cls.fetch_access_token(target)
-                return
-
             target.listen(file_input)
         return cli
 
