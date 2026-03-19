@@ -499,6 +499,12 @@ class TargetHotglue(Target):
             help="Execute the Singer target.",
             context_settings={"help_option_names": ["--help"]},
         )
+        @click.option(
+            "--access-token",
+            "access_token",
+            is_flag=True,
+            help="Refresh the OAuth access token and update the config file.",
+        )
         def cli(
             version: bool = False,
             about: bool = False,
