@@ -90,12 +90,15 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
         Returns:
             A list of capabilities supported by this target.
         """
-        return [
+        capabilities = [
             PluginCapabilities.ABOUT,
             PluginCapabilities.STREAM_MAPS,
             PluginCapabilities.FLATTENING,
             PluginCapabilities.HOTGLUE_EXCEPTIONS_CLASSES
         ]
+        if self.confirm_fetch_access_token_support():
+            capabilities.append(PluginCapabilities.ALLOWS_FETCH_ACCESS_TOKEN)
+        return capabilities
 
     @property
     def max_parallelism(self) -> int:
@@ -509,6 +512,31 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
         self.logger.info(f"Emitting completed target state {state_json}")
         sys.stdout.write(f"{state_json}\n")
         sys.stdout.flush()
+
+    @classmethod
+    def update_access_token(cls, authenticator, auth_endpoint, target) -> None:
+        """Update the access token.
+
+        Returns:
+            None
+        """
+
+        # If the tap has a use_auth_dummy_stream method, use it to create a dummy stream
+        # normally used for taps with dynamic catalogs
+        class DummySink:
+            def __init__(self, config: dict):
+                self.config = cls._config
+
+        stream = DummySink(target)
+        auth = authenticator(
+            stream=stream,
+            config_file=target.config_file,
+            auth_endpoint=auth_endpoint,
+        )
+
+        # Update the access token
+        if not auth.is_token_valid():
+            auth.update_access_token_locally()
 
     # CLI handler
 
