@@ -491,7 +491,7 @@ class TargetHotglue(Target):
 
         # Update the access token
         if not auth.is_token_valid():
-            auth.update_access_token_locally()
+            auth._update_access_token_locally()
 
 
     @classproperty
