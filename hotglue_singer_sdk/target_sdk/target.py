@@ -475,6 +475,27 @@ class TargetHotglue(Target):
 
         return counter
 
+    @classmethod
+    def update_access_token(cls, authenticator, auth_endpoint, target) -> None:
+        """Update the access token.
+
+        Returns:
+            None
+        """
+
+        # If the tap has a use_auth_dummy_stream method, use it to create a dummy stream
+        # normally used for taps with dynamic catalogs
+        auth = authenticator(
+            target=target,
+            state={},
+            auth_endpoint=auth_endpoint,
+        )
+
+        # Update the access token
+        if not auth.is_token_valid():
+            auth.update_access_token_locally()
+
+
     @classproperty
     def cli(cls) -> Callable:
         """Execute standard CLI handler for taps.
