@@ -483,8 +483,6 @@ class TargetHotglue(Target):
             None
         """
 
-        # If the tap has a use_auth_dummy_stream method, use it to create a dummy stream
-        # normally used for taps with dynamic catalogs
         auth = authenticator(
             target=target,
             state={},
