@@ -90,12 +90,15 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
         Returns:
             A list of capabilities supported by this target.
         """
-        return [
+        capabilities = [
             PluginCapabilities.ABOUT,
             PluginCapabilities.STREAM_MAPS,
             PluginCapabilities.FLATTENING,
             PluginCapabilities.HOTGLUE_EXCEPTIONS_CLASSES
         ]
+        if self.confirm_fetch_access_token_support():
+            capabilities.append(PluginCapabilities.ALLOWS_FETCH_ACCESS_TOKEN)
+        return capabilities
 
     @property
     def max_parallelism(self) -> int:
@@ -586,9 +589,7 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
                 parse_env_config=parse_env_config,
                 validate_config=validate_config,
             )
-
             target.listen(file_input)
-
         return cli
 
 

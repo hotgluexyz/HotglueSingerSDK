@@ -475,6 +475,25 @@ class TargetHotglue(Target):
 
         return counter
 
+    @classmethod
+    def update_access_token(cls, authenticator, auth_endpoint, target) -> None:
+        """Update the access token.
+
+        Returns:
+            None
+        """
+
+        auth = authenticator(
+            target=target,
+            state={},
+            auth_endpoint=auth_endpoint,
+        )
+
+        # Update the access token
+        if not auth.is_token_valid():
+            auth._update_access_token_locally()
+
+
     @classproperty
     def cli(cls) -> Callable:
         """Execute standard CLI handler for taps.
@@ -499,6 +518,12 @@ class TargetHotglue(Target):
             help="Execute the Singer target.",
             context_settings={"help_option_names": ["--help"]},
         )
+        @click.option(
+            "--access-token",
+            "access_token",
+            is_flag=True,
+            help="Refresh the OAuth access token and update the config file.",
+        )
         def cli(
             version: bool = False,
             about: bool = False,
@@ -506,6 +531,7 @@ class TargetHotglue(Target):
             state: str = None,
             format: str = None,
             file_input: FileIO = None,
+            access_token: bool = False,
         ) -> None:
             """Handle command line execution.
 
@@ -558,6 +584,11 @@ class TargetHotglue(Target):
                 validate_config=validate_config,
                 state=state,
             )
+
+            if access_token:
+                cls.fetch_access_token(target)
+                return
+
 
             target.listen(file_input)
 
