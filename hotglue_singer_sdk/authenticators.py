@@ -444,7 +444,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
             return False
         if not self.expires_in:
             return False
-        if self.expires_in - int(utils.now().timestamp()) > 120:
+        if int(self.expires_in) - int(utils.now().timestamp()) > 120:
             return True
         return False
     
