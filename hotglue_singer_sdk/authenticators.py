@@ -443,7 +443,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         if self.last_refreshed is None:
             return False
         if not self.expires_in:
-            return False
+            return True
         if int(self.expires_in) - int(utils.now().timestamp()) > 120:
             return True
         return False
