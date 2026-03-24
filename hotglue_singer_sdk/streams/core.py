@@ -125,6 +125,8 @@ class Stream(metaclass=abc.ABCMeta):
         self._schema: dict
         self.child_streams: List[Stream] = []
         self._minimum_start_time: Optional[datetime.datetime] = None
+        self._selected_filters_version: Optional[str] = None
+        self._selected_filters: Optional[dict] = None
 
         if schema:
             if isinstance(schema, (PathLike, str)):
@@ -151,6 +153,17 @@ class Stream(metaclass=abc.ABCMeta):
                 f"Could not initialize schema for stream '{self.name}'. "
                 "A valid schema object or filepath was not provided."
             )
+
+        if hasattr(self._tap, "_selected_filters") and self._tap._selected_filters \
+            and self._tap._selected_filters.get("streams", {}).get(self.name, {}):
+            self._selected_filters_version = self._tap._selected_filters.get("filters_version")
+            self._selected_filters = self._tap._selected_filters["streams"][self.name]
+            self.logger.info(f"Stream: {self.name} - Selected filters version: {self._selected_filters_version} - Selected filters: {self._selected_filters}")
+            self.setup_selected_filters()
+
+    def setup_selected_filters(self) -> None:
+        """Setup selected filters for the stream."""
+        pass
 
     @property
     def stream_maps(self) -> List[StreamMap]:
