@@ -500,6 +500,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
                 "default_expiration set. Token will be treated as if it never "
                 "expires."
             )
+            self.expires_in = None
         else:
             self.expires_in = int(expires_in) + int(request_time.timestamp())
 

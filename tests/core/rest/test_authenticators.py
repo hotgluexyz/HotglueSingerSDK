@@ -134,6 +134,36 @@ def test_oauth_authenticator_token_expiry_handling(
     assert authenticator.expires_in == 1000 + relative
 
 
+def test_oauth_expires_in_none_clears_stale_value(
+    rest_tap: Tap,
+    requests_mock: requests_mock.Mocker,
+):
+    """A second refresh returning no expires_in must reset expires_in to None,
+    not retain the stale absolute timestamp from the first refresh."""
+    requests_mock.post(
+        "https://example.com/oauth",
+        json={"access_token": "tok-1", "expires_in": 3600},
+    )
+    authenticator = _FakeOAuthAuthenticator(
+        stream=rest_tap.streams["some_stream"],
+        auth_endpoint="https://example.com/oauth",
+        default_expiration=None,
+    )
+
+    with freeze_time("1970-01-01 00:16:40"):
+        authenticator.update_access_token()
+    assert authenticator.expires_in == 1000 + 3600
+
+    requests_mock.post(
+        "https://example.com/oauth",
+        json={"access_token": "tok-2"},
+    )
+
+    with freeze_time("1970-01-01 00:33:20"):
+        authenticator.update_access_token()
+    assert authenticator.expires_in is None
+
+
 @pytest.fixture
 def private_key() -> RSAPrivateKey:
     return generate_private_key(public_exponent=65537, key_size=4096)
