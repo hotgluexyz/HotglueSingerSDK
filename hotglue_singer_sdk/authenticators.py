@@ -495,6 +495,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         self.access_token = token_json["access_token"]
         expires_in = token_json.get("expires_in", self._default_expiration)
         if expires_in is None:
+            self.expires_in = None
             self.logger.debug(
                 "No expires_in receied in OAuth response and no "
                 "default_expiration set. Token will be treated as if it never "
