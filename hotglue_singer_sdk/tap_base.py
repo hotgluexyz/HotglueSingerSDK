@@ -82,6 +82,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         self._input_catalog: Optional[Catalog] = None
         self._state: Dict[str, Stream] = {}
         self._catalog: Optional[Catalog] = None  # Tap's working catalog
+        self._selected_filters: Optional[dict] = None
         if isinstance(config, (list, tuple)) and config:
             self.config_file = config[0]
         elif isinstance(config, (str, PurePath)):
@@ -121,6 +122,10 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         elif state:
             state_dict = read_json_file(state)
         self.load_state(state_dict)
+
+    def load_selected_filters_from_file(self, selected_filters):
+        self._selected_filters = read_json_file(selected_filters)
+        self.logger.info(f"Loaded selected filters: {self._selected_filters}")
 
 
     # Class properties
@@ -493,6 +498,11 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             is_flag=True,
             help="Refresh the OAuth access token and update the config file.",
         )
+        @click.option(
+            "--selected-filters",
+            help="Selected filters file location.",
+            type=click.Path(),
+        )
         @click.command(
             help="Execute the Singer tap.",
             context_settings={"help_option_names": ["--help"]},
@@ -507,6 +517,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             catalog: str = None,
             format: str = None,
             access_token: bool = False,
+            selected_filters: str = None,
         ) -> None:
             """Handle command line execution.
 
@@ -564,6 +575,9 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                 parse_env_config=parse_env_config,
                 validate_config=validate_config,
             )
+
+            if selected_filters is not None:
+                tap.load_selected_filters_from_file(selected_filters)
 
             if access_token:
                 return cls.fetch_access_token(connector=tap)

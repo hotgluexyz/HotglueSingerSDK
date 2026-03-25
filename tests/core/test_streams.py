@@ -1,5 +1,6 @@
 """Stream tests."""
 
+import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional, cast
 
@@ -49,6 +50,15 @@ class SimpleTestStream(Stream):
         yield {"id": 1, "value": "Egypt"}
         yield {"id": 2, "value": "Germany"}
         yield {"id": 3, "value": "India"}
+
+
+class SelectedFiltersTestStream(SimpleTestStream):
+    """Test stream with selected filters hook."""
+
+    setup_selected_filters_called = False
+
+    def setup_selected_filters(self) -> None:
+        self.setup_selected_filters_called = True
 
 
 class UnixTimestampIncrementalStream(SimpleTestStream):
@@ -505,3 +515,82 @@ def test_register_streams_from_catalog_twice_catalog_equals_input_catalog():
     tap.register_streams_from_catalog(catalog_dict)
     _ = tap.catalog  # force catalog to be computed
     assert id(tap._input_catalog) == id(tap._catalog) == id(tap.catalog) == id(tap.input_catalog)
+
+def test_stream_initializes_selected_filters_from_tap(tmp_path):
+    """Stream should set selected filters and call setup hook."""
+    selected_filters = {
+        "filters_version": "1.0.0",
+        "streams": {
+            "test": {
+                "clause_1": {
+                    "field": "status",
+                    "operator": "EQ",
+                    "value": "open"
+                }
+            },
+            "some_other_stream": {
+                "clause_1": {
+                    "field": "name",
+                    "operator": "EQ",
+                    "value": "some_name"
+                }
+            },
+        },
+    }
+    selected_filters_path = tmp_path / "selected_filters-1.json"
+    selected_filters_path.write_text(json.dumps(selected_filters))
+
+    tap = SimpleTestTap(
+        config={"start_date": CONFIG_START_DATE},
+        parse_env_config=False,
+    )
+
+    tap.load_selected_filters_from_file(str(selected_filters_path))
+
+    assert tap._selected_filters == selected_filters
+
+    stream = SelectedFiltersTestStream(tap)
+
+    assert stream._selected_filters_version == "1.0.0"
+    assert stream._selected_filters == {
+        "clause_1": {
+            "field": "status",
+            "operator": "EQ",
+            "value": "open"
+        }
+    }
+    assert stream.setup_selected_filters_called is True
+
+
+def test_stream_skips_selected_filters_when_not_present_for_stream(tmp_path):
+    """Stream should not initialize selected filters for non-configured stream."""
+    tap = SimpleTestTap(
+        config={"start_date": CONFIG_START_DATE},
+        parse_env_config=False,
+    )
+
+    selected_filters = {
+        "filters_version": "1.0.0",
+        "streams": {
+            "some_other_stream": {
+                "clause_1": {
+                    "field": "name",
+                    "operator": "EQ",
+                    "value": "some_name"
+                }
+            },
+        },
+    }
+
+    selected_filters_path = tmp_path / "selected_filters-2.json"
+    selected_filters_path.write_text(json.dumps(selected_filters))
+
+    tap.load_selected_filters_from_file(str(selected_filters_path))
+
+    assert tap._selected_filters == selected_filters
+
+    stream = SelectedFiltersTestStream(tap)
+
+    assert stream._selected_filters_version is None
+    assert stream._selected_filters is None
+    assert stream.setup_selected_filters_called is False
