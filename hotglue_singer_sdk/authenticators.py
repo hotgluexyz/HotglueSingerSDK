@@ -443,7 +443,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         if self.last_refreshed is None:
             return False
         if not self.expires_in:
-            return False
+            return True
         if int(self.expires_in) - int(utils.now().timestamp()) > 120:
             return True
         return False
@@ -460,7 +460,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         request_time = utc_now()
         token_json = fetch_access_token_from_hotglue_api(connector_id)
         self.access_token = token_json["access_token"]
-        self.expires_in = int(token_json["expires_in"])
+        self.expires_in = int(token_json["expires_in"]) if token_json["expires_in"] is not None else  None
         self.last_refreshed = request_time
 
         self._tap._config["access_token"] = token_json["access_token"]
@@ -493,14 +493,17 @@ class OAuthAuthenticator(APIAuthenticatorBase):
             )
         token_json = token_response.json()
         self.access_token = token_json["access_token"]
-        expires_in = int(token_json.get("expires_in", self._default_expiration))
-        self.expires_in = expires_in + int(request_time.timestamp())
-        if self.expires_in is None:
+        expires_in = token_json.get("expires_in", self._default_expiration)
+        if expires_in is None:
             self.logger.debug(
                 "No expires_in receied in OAuth response and no "
                 "default_expiration set. Token will be treated as if it never "
                 "expires."
             )
+            self.expires_in = None
+        else:
+            self.expires_in = int(expires_in) + int(request_time.timestamp())
+
         self.last_refreshed = request_time
         # Update the tap config with the new access_token and refresh_token
         self._tap._config["access_token"] = token_json["access_token"]

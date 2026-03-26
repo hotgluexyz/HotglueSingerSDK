@@ -123,15 +123,45 @@ def test_oauth_authenticator_token_expiry_handling(
 
     # Freeze time so stored expiry is deterministic: request_time.timestamp() == 1000
     with freeze_time("1970-01-01 00:16:40"):
-        if expected_expires_in is None:
-            with pytest.raises(TypeError):
-                authenticator.update_access_token()
-            return
         authenticator.update_access_token()
+
+    if expected_expires_in is None:
+        assert authenticator.expires_in is None
+        return
 
     # SDK stores absolute timestamp: 1000 + (response expires_in or default)
     relative = oauth_response_expires_in if oauth_response_expires_in is not None else default_expiration
     assert authenticator.expires_in == 1000 + relative
+
+
+def test_oauth_expires_in_none_clears_stale_value(
+    rest_tap: Tap,
+    requests_mock: requests_mock.Mocker,
+):
+    """A second refresh returning no expires_in must reset expires_in to None,
+    not retain the stale absolute timestamp from the first refresh."""
+    requests_mock.post(
+        "https://example.com/oauth",
+        json={"access_token": "tok-1", "expires_in": 3600},
+    )
+    authenticator = _FakeOAuthAuthenticator(
+        stream=rest_tap.streams["some_stream"],
+        auth_endpoint="https://example.com/oauth",
+        default_expiration=None,
+    )
+
+    with freeze_time("1970-01-01 00:16:40"):
+        authenticator.update_access_token()
+    assert authenticator.expires_in == 1000 + 3600
+
+    requests_mock.post(
+        "https://example.com/oauth",
+        json={"access_token": "tok-2"},
+    )
+
+    with freeze_time("1970-01-01 00:33:20"):
+        authenticator.update_access_token()
+    assert authenticator.expires_in is None
 
 
 @pytest.fixture
