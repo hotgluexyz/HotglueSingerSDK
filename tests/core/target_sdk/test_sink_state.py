@@ -120,11 +120,23 @@ def test_externalid_removed_from_payload_but_in_state():
     target = FakeTarget()
     sink = _make_sink(target, CapturingSink)
 
+    # for standard externalId
     record = {"name": "a", "externalId": "e1"}
     sink.process_record(record, context={})
 
     assert sink.last_payload is not None
     assert "externalId" not in sink.last_payload
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["externalId"] == "e1"
+    assert state_entry["hash"] == sink.build_record_hash({"name": "a", "externalId": "e1"})
+
+    # for externalid in lowercase (backward compatibility)
+    record = {"name": "a", "externalid": "e1"}
+    sink.process_record(record, context={})
+
+    assert sink.last_payload is not None
+    assert "externalid" not in sink.last_payload
 
     state_entry = sink.latest_state["bookmarks"]["widgets"][0]
     assert state_entry["externalId"] == "e1"
@@ -140,6 +152,16 @@ def test_externalid_kept_in_payload_when_allowed():
 
     assert sink.last_payload is not None
     assert sink.last_payload["externalId"] == "e1"
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["externalId"] == "e1"
+
+    # for externalid in lowercase (backward compatibility)
+    record = {"name": "a", "externalid": "e1"}
+    sink.process_record(record, context={})
+
+    assert sink.last_payload is not None
+    assert sink.last_payload["externalid"] == "e1"
 
     state_entry = sink.latest_state["bookmarks"]["widgets"][0]
     assert state_entry["externalId"] == "e1"
