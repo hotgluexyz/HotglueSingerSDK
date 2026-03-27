@@ -140,7 +140,7 @@ def test_externalid_removed_from_payload_but_in_state():
 
     state_entry = sink.latest_state["bookmarks"]["widgets"][1]
     assert state_entry["externalId"] == "e2"
-    assert state_entry["hash"] == sink.build_record_hash({"name": "a", "externalId": "e1"})
+    assert state_entry["hash"] == sink.build_record_hash({"name": "a", "externalId": "e2"})
 
 
 def test_externalid_kept_in_payload_when_allowed():
