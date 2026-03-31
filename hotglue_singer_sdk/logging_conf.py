@@ -37,7 +37,7 @@ class JobAwareSingerFormatter(logging.Formatter):
 
 
 class JobAwareVerboseFormatter(logging.Formatter):
-    """Verbose layout; omits leading timestamp when :envvar:`JOB` is set."""
+    """Verbose layout; omits leading timestamp when :envvar:`JOB_ID` is set."""
 
     def __init__(self, fmt=None, datefmt=None, style="%"):  # noqa: ARG002
         super().__init__()
