@@ -48,7 +48,7 @@ class JobAwareVerboseFormatter(logging.Formatter):
         self._no_time = logging.Formatter(fmt=JOB_AWARE_VERBOSE_FMT_NO_TIME)
 
     def format(self, record: logging.LogRecord) -> str:
-        if os.environ.get("JOB"):
+        if os.environ.get("JOB_ID"):
             return self._no_time.format(record)
         return self._with_time.format(record)
 

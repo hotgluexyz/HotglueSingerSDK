@@ -148,9 +148,9 @@ def test_job_aware_verbose_formatter_respects_job(
     monkeypatch, utc_tz, job_set, expected_line
 ):
     if job_set:
-        monkeypatch.setenv("JOB", "1")
+        monkeypatch.setenv("JOB_ID", "hg-job-1")
     else:
-        monkeypatch.delenv("JOB", raising=False)
+        monkeypatch.delenv("JOB_ID", raising=False)
 
     with freezegun.freeze_time("2026-03-31 12:00:00"):
         record = _sample_log_record(pathname=str(Path(__file__).resolve()))
