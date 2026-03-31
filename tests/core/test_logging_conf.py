@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import freezegun
@@ -78,6 +79,19 @@ def test_job_aware_verbose_format_templates_contract():
     )
 
 
+@pytest.fixture
+def utc_tz(monkeypatch):
+    """Make ``logging.Formatter`` use UTC for ``%(asctime)s`` (matches frozen wall clock).
+
+    Freezegun pins ``time.time()``; the stdlib still formats ``asctime`` with
+    ``localtime(record.created)``. Without ``TZ=UTC``, a dev machine in e.g. US/Eastern
+    turns ``2026-03-31 12:00:00`` into ``07:00:00`` in the log line.
+    """
+    monkeypatch.setenv("TZ", "UTC")
+    if hasattr(time, "tzset"):
+        time.tzset()
+
+
 def _sample_log_record(*, pathname: str, func: str = "my_func") -> logging.LogRecord:
     return logging.LogRecord(
         name="tap-example",
@@ -104,7 +118,9 @@ def _sample_log_record(*, pathname: str, func: str = "my_func") -> logging.LogRe
         ),
     ],
 )
-def test_job_aware_singer_formatter_respects_job_id(monkeypatch, job_id_set, expected_line):
+def test_job_aware_singer_formatter_respects_job_id(
+    monkeypatch, utc_tz, job_id_set, expected_line
+):
     if job_id_set:
         monkeypatch.setenv("JOB_ID", "hg-job-1")
     else:
@@ -128,7 +144,9 @@ def test_job_aware_singer_formatter_respects_job_id(monkeypatch, job_id_set, exp
         ),
     ],
 )
-def test_job_aware_verbose_formatter_respects_job(monkeypatch, job_set, expected_line):
+def test_job_aware_verbose_formatter_respects_job(
+    monkeypatch, utc_tz, job_set, expected_line
+):
     if job_set:
         monkeypatch.setenv("JOB", "1")
     else:
