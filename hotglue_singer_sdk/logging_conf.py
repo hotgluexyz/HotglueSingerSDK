@@ -19,7 +19,8 @@ class JobAwareSingerFormatter(logging.Formatter):
         )
 
     def format(self, record: logging.LogRecord) -> str:
-        if os.environ.get("JOB"):
+        # check if job is being run by hotglue
+        if os.environ.get("JOB_ID"):
             return self._no_time.format(record)
         return self._with_time.format(record)
 
