@@ -196,10 +196,11 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         success = None
         state = {}
         state_updates = dict()
+        external_id_key = self._target.EXTERNAL_ID_KEY
 
         try:
-            if self.name not in self.allows_externalid and record.get(self._target.EXTERNAL_ID_KEY):
-                external_id = record.pop(self._target.EXTERNAL_ID_KEY, None)
+            if self.name not in self.allows_externalid and (record.get(external_id_key) or record.get(external_id_key.lower())):
+                external_id = record.pop(external_id_key, None) or record.pop(external_id_key.lower(), None)
 
             record = self.preprocess_record(record, context)
 
@@ -222,9 +223,9 @@ class HotglueSink(HotglueBaseSink, RecordSink):
             existing_state =  self.get_existing_state(hash)
 
             if self.name in self.allows_externalid:
-                external_id = record.get("externalId")
+                external_id = record.get(external_id_key) or record.get(external_id_key.lower())
             else:
-                external_id = record.pop("externalId", None)
+                external_id = record.pop(external_id_key, None) or record.pop(external_id_key.lower(), None)
 
             if existing_state:
                 return self.update_state(existing_state, is_duplicate=True, record=record)
