@@ -14,6 +14,10 @@ exclude = [
 
 [lint]
 extend-select = ["C901"]
-ignore = ["E722", "E402"]
+ignore = ["E722"]
+
+[lint.per-file-ignores]
+"hotglue_singer_sdk/__init__.py" = ["E402"]
+
 [lint.mccabe]
 max-complexity = 15
