@@ -48,10 +48,20 @@ class JobAwareVerboseFormatter(logging.Formatter):
 
 
 def default_logging_conf_path() -> str:
-    """Return the absolute path to ``default_logging.conf`` shipped with this package.
-
-    Set before starting the tap/target process (Singer reads this on first ``get_logger()``)::
-
-        export LOGGING_CONF_FILE="$(python -c 'from hotglue_singer_sdk.logging_conf import default_logging_conf_path; print(default_logging_conf_path())')"
-    """
+    """Return the absolute path to ``default_logging.conf`` shipped with this package."""
     return str((Path(__file__).resolve().parent / "default_logging.conf"))
+
+
+def ensure_default_logging_conf_env() -> None:
+    """If ``LOGGING_CONF_FILE`` is unset, set it to :func:`default_logging_conf_path`.
+
+    Singer's ``get_logger()`` (via ``singer.messages``) reads this env var on first use.
+    Call this **before** any code imports ``singer`` — :mod:`hotglue_singer_sdk` does that
+    at package import time. Override by setting ``LOGGING_CONF_FILE`` yourself before
+    importing the SDK, or by importing ``singer`` before ``hotglue_singer_sdk`` (not recommended).
+    """
+    if os.environ.get("LOGGING_CONF_FILE", "").strip():
+        return
+    path = default_logging_conf_path()
+    if os.path.isfile(path):
+        os.environ["LOGGING_CONF_FILE"] = path
