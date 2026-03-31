@@ -4,22 +4,33 @@ import logging
 import os
 from pathlib import Path
 
+# Log line templates (tests lock these strings so edits are intentional).
+JOB_AWARE_SINGER_DATEFMT = "%Y-%m-%d %H:%M:%S"
+JOB_AWARE_SINGER_FMT_WITH_TIME = "time=%(asctime)s - %(name)s - %(message)s"
+JOB_AWARE_SINGER_FMT_NO_TIME = "%(name)s - %(message)s"
+
+JOB_AWARE_VERBOSE_DATEFMT = "%Y-%m-%d %H:%M:%S"
+JOB_AWARE_VERBOSE_FMT_WITH_TIME = (
+    "%(asctime)s,%(msecs)03d - %(module)s.%(funcName)s - "
+    "%(levelname)s - %(name)s - %(message)s"
+)
+JOB_AWARE_VERBOSE_FMT_NO_TIME = (
+    "%(module)s.%(funcName)s - %(levelname)s - %(name)s - %(message)s"
+)
+
 
 class JobAwareSingerFormatter(logging.Formatter):
-    """Pipelinewise-style key=value line; omits ``time=`` when :envvar:`JOB` is set."""
+    """Line with ``time=`` locally; without when :envvar:`JOB_ID` is set (Hotglue job)."""
 
     def __init__(self, fmt=None, datefmt=None, style="%"):  # noqa: ARG002
         super().__init__()
         self._with_time = logging.Formatter(
-            fmt="time=%(asctime)s - %(name)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+            fmt=JOB_AWARE_SINGER_FMT_WITH_TIME,
+            datefmt=JOB_AWARE_SINGER_DATEFMT,
         )
-        self._no_time = logging.Formatter(
-            fmt="%(name)s - %(message)s",
-        )
+        self._no_time = logging.Formatter(fmt=JOB_AWARE_SINGER_FMT_NO_TIME)
 
     def format(self, record: logging.LogRecord) -> str:
-        # check if job is being run by hotglue
         if os.environ.get("JOB_ID"):
             return self._no_time.format(record)
         return self._with_time.format(record)
@@ -31,15 +42,10 @@ class JobAwareVerboseFormatter(logging.Formatter):
     def __init__(self, fmt=None, datefmt=None, style="%"):  # noqa: ARG002
         super().__init__()
         self._with_time = logging.Formatter(
-            fmt=(
-                "%(asctime)s,%(msecs)03d - %(module)s.%(funcName)s - "
-                "%(levelname)s - %(name)s - %(message)s"
-            ),
-            datefmt="%Y-%m-%d %H:%M:%S",
+            fmt=JOB_AWARE_VERBOSE_FMT_WITH_TIME,
+            datefmt=JOB_AWARE_VERBOSE_DATEFMT,
         )
-        self._no_time = logging.Formatter(
-            fmt="%(module)s.%(funcName)s - %(levelname)s - %(name)s - %(message)s",
-        )
+        self._no_time = logging.Formatter(fmt=JOB_AWARE_VERBOSE_FMT_NO_TIME)
 
     def format(self, record: logging.LogRecord) -> str:
         if os.environ.get("JOB"):
