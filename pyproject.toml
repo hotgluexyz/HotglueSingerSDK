@@ -26,6 +26,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 license = "Apache 2.0"
+include = [
+    "hotglue_singer_sdk/default_logging.conf",
+]
 
 [tool.poetry.dependencies]
 python = "<3.11,>=3.7.1"

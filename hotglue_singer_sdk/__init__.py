@@ -1,5 +1,8 @@
 """SDK for building singer-compliant Singer taps."""
 
+from hotglue_singer_sdk.logging_conf import ensure_default_logging_conf_env
+ensure_default_logging_conf_env()
+
 from hotglue_singer_sdk import streams
 from hotglue_singer_sdk.mapper_base import InlineMapper
 from hotglue_singer_sdk.plugin_base import PluginBase
@@ -13,6 +16,7 @@ from hotglue_singer_sdk.streams import (
 )
 from hotglue_singer_sdk.tap_base import SQLTap, Tap
 from hotglue_singer_sdk.target_base import SQLTarget, Target
+
 
 __all__ = [
     "BatchSink",
