@@ -201,3 +201,8 @@ def test_request_decorator_gives_up_non_transient_oserror(basic_rest_stream):
     with pytest.raises(OSError):
         decorated()
     assert attempts["count"] == 1
+
+def test_request_backoff_exceptions_include_oserror(basic_rest_stream):
+    exceptions = basic_rest_stream.backoff_exceptions()
+    assert OSError in exceptions
+    assert requests.exceptions.ConnectionError in exceptions
