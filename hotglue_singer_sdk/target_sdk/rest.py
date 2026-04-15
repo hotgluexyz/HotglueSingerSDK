@@ -11,6 +11,7 @@ import requests
 import json
 
 from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
+from hotglue_singer_sdk.helpers._network import giveup_oserror_not_transient_network
 from hotglue_singer_sdk.target_sdk.auth import Authenticator
 from hotglue_singer_sdk.target_sdk.common import HGJSONEncoder
 
@@ -44,6 +45,7 @@ class Rest:
             self.backoff_exceptions(),
             max_tries=self.backoff_max_tries,
             on_backoff=self.backoff_handler,
+            giveup=giveup_oserror_not_transient_network,
         )(func)
         return decorator
 
@@ -65,7 +67,8 @@ class Rest:
         return (
             RetriableAPIError, 
             requests.exceptions.ReadTimeout, 
-            requests.exceptions.ConnectionError
+            requests.exceptions.ConnectionError,
+            OSError,
         )
 
     def backoff_max_tries(self) -> _MaybeCallable[int] | None:

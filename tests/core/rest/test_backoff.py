@@ -1,4 +1,5 @@
 import json
+import errno
 
 try:
     from contextlib import nullcontext
@@ -9,9 +10,13 @@ from enum import Enum
 
 import pytest
 import requests
+import backoff
 
 from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
-from hotglue_singer_sdk.streams.rest import RESTStream
+from hotglue_singer_sdk.helpers._network import giveup_oserror_not_transient_network
+from hotglue_singer_sdk.streams.rest import (
+    RESTStream,
+)
 
 
 class CustomResponseValidationStream(RESTStream):
@@ -152,3 +157,47 @@ def test_rate_limiting_status_override(
 
     with expectation:
         basic_rest_stream.validate_response(fake_response)
+
+
+def test_giveup_oserror_not_transient_network_matrix():
+    assert not giveup_oserror_not_transient_network(
+        requests.exceptions.ConnectionError("wrapped network error")
+    )
+    assert not giveup_oserror_not_transient_network(
+        OSError(errno.ENETUNREACH, "Network is unreachable")
+    )
+    assert giveup_oserror_not_transient_network(
+        OSError(errno.EINVAL, "Non-transient error")
+    )
+    assert giveup_oserror_not_transient_network(OSError("Unknown errno"))
+
+
+def test_request_decorator_retries_transient_bare_oserror(basic_rest_stream):
+    basic_rest_stream.backoff_wait_generator = lambda: backoff.constant(interval=0)
+    basic_rest_stream.backoff_max_tries = lambda: 3
+    attempts = {"count": 0}
+
+    def transient_then_success():
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise OSError(errno.ENETUNREACH, "Network is unreachable")
+        return "ok"
+
+    decorated = basic_rest_stream.request_decorator(transient_then_success)
+    assert decorated() == "ok"
+    assert attempts["count"] == 2
+
+
+def test_request_decorator_gives_up_non_transient_oserror(basic_rest_stream):
+    basic_rest_stream.backoff_wait_generator = lambda: backoff.constant(interval=0)
+    basic_rest_stream.backoff_max_tries = lambda: 3
+    attempts = {"count": 0}
+
+    def non_transient_failure():
+        attempts["count"] += 1
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+    decorated = basic_rest_stream.request_decorator(non_transient_failure)
+    with pytest.raises(OSError):
+        decorated()
+    assert attempts["count"] == 1
