@@ -21,10 +21,10 @@ _TRANSIENT_NETWORK_ERRNOS = frozenset(
 def giveup_oserror_not_transient_network(exc: Exception) -> bool:
     """Backoff giveup for non-transient OSErrors.
 
-    requests.ConnectionError is an OSError subclass and should keep current
-    behavior, so this filter is only strict for bare OSError cases.
+    Keep retry behavior for requests exceptions,
+    even when they inherit from OSError.
     """
-    if isinstance(exc, requests.exceptions.ConnectionError):
+    if isinstance(exc, requests.exceptions.RequestException):
         return False
     if isinstance(exc, OSError):
         return exc.errno not in _TRANSIENT_NETWORK_ERRNOS
