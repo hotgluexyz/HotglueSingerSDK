@@ -6,7 +6,7 @@ import abc
 import copy
 import logging
 from datetime import datetime
-from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, Union
+from typing import Any, Callable, Generator, Generic, Tuple, Type, Iterable, TypeVar, Union
 from urllib.parse import urlparse
 
 import backoff
@@ -15,6 +15,7 @@ from singer.schema import Schema
 
 from hotglue_singer_sdk.authenticators import APIAuthenticatorBase, SimpleAuthenticator
 from hotglue_singer_sdk.exceptions import FatalAPIError, RetriableAPIError
+from hotglue_singer_sdk.helpers._network import giveup_oserror_not_transient_network
 from hotglue_singer_sdk.helpers.jsonpath import extract_jsonpath
 from hotglue_singer_sdk.plugin_base import PluginBase as TapBaseClass
 from hotglue_singer_sdk.streams.core import Stream
@@ -196,7 +197,8 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
     def request_decorator(self, func: Callable) -> Callable:
         """Instantiate a decorator for handling request failures.
 
-        Uses a wait generator defined in `backoff_wait_generator` to
+        Uses a wait generator defined in `backoff_wait_generator`, 
+        exception types from `backoff_exceptions`, to
         determine backoff behaviour. Try limit is defined in
         `backoff_max_tries`, and will trigger the event defined in
         `backoff_handler` before retrying. Developers may override one or
@@ -210,13 +212,10 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
         """
         decorator: Callable = backoff.on_exception(
             self.backoff_wait_generator,
-            (
-                RetriableAPIError,
-                requests.exceptions.ReadTimeout,
-                requests.exceptions.ConnectionError,
-            ),
+            self.backoff_exceptions(),
             max_tries=self.backoff_max_tries,
             on_backoff=self.backoff_handler,
+            giveup=giveup_oserror_not_transient_network,
         )(func)
         return decorator
 
@@ -561,6 +560,15 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             The wait generator
         """
         return backoff.expo(factor=2)  # type: ignore # ignore 'Returning Any'
+    
+    def backoff_exceptions(self) -> Tuple[Type[Exception], ...]:
+        """Exception types that trigger a retry. Override to add or change."""
+        return (
+            RetriableAPIError, 
+            requests.exceptions.ReadTimeout, 
+            requests.exceptions.ConnectionError,
+            OSError,
+        )
 
     def backoff_max_tries(self) -> _MaybeCallable[int] | None:
         """The number of attempts before giving up when retrying requests.
