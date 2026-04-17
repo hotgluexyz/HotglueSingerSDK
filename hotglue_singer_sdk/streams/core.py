@@ -198,7 +198,7 @@ class Stream(metaclass=abc.ABCMeta):
             The records fields are filtered to only include the fields in the `fields_to_include` list.
         """
         records = []
-        for record_result in self.get_records(context={}):
+        for record_result in self.get_records(context=None):
             if isinstance(record_result, tuple):
                 # Tuple items should be the record and the child context
                 record, child_context = record_result
