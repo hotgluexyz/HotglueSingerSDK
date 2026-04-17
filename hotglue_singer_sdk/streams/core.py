@@ -21,6 +21,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    Set,
     cast,
 )
 
@@ -187,7 +188,7 @@ class Stream(metaclass=abc.ABCMeta):
         """
         pass
 
-    def get_available_filters_reference_data(self, fields_to_include: List[str]) -> List[Dict[str, Any]]:
+    def get_available_filters_reference_data(self, fields_to_include: Set[str]) -> List[Dict[str, Any]]:
         """Get reference data for for the stream.
 
         Args:
