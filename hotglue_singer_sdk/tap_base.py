@@ -7,7 +7,7 @@ import threading
 import traceback
 from enum import Enum
 from pathlib import Path, PurePath
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, Set, cast
 
 import click
 
@@ -453,6 +453,92 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         for stream in self.streams.values():
             stream.log_sync_costs()
 
+    # Get Available Filters methods
+    
+    @property
+    def available_filters_version(self) -> str:
+        """Get the version of the available filters."""
+        return "1.0.0"
+
+    def extract_reference_data_fields_metadata(self, streams_filters_metadata: Dict[str, Any]) -> Dict[str, Set[str]]:
+        """Parse streams_filters_metadata into stream names and fields.
+
+        Options may reference e.g. ``reference_data.vendors.vendor_id``;
+        
+        Returns a dictionary with the stream name as the key and a set of fields as the value.
+        Example:
+        {
+            "vendor": {"vendor_id", "vendor_name"},
+            "customer": {"customer_id", "customer_name"},
+        }
+        """
+        reference_data_metadata: Dict[str, Set[str]] = {}
+        for stream_entry in streams_filters_metadata.values():
+            if not isinstance(stream_entry, dict):
+                continue
+            filters = stream_entry.get("filters") or {}
+            for filter_entry in filters.values():
+                if not isinstance(filter_entry, dict):
+                    continue
+                options = filter_entry.get("options")
+                if isinstance(options, str) and options.startswith("reference_data."):
+                    reference_data_path = options.split(".")
+                    if len(reference_data_path) != 3:
+                        raise ValueError(f"Invalid reference_data path: {options}")
+                    stream_name = reference_data_path[1]
+                    field_name = reference_data_path[2]
+                    if stream_name not in reference_data_metadata:
+                        reference_data_metadata[stream_name] = set()
+                    reference_data_metadata[stream_name].add(field_name)
+        return reference_data_metadata
+
+    def load_available_filters_reference_data(self, stream_name_to_fields: Dict[str, Set[str]]) -> Dict[str, Any]:
+        """Load reference data for the streams.
+
+        Args:
+            stream_name_to_fields: A dictionary with the stream name as the key and a set of fields as the value.
+
+        Returns:
+            A dictionary with the stream name as the key and a list of dictionaries as the value.
+            The dictionaries are the records from the stream.
+            The records fields are filtered to only include the fields in the `fields` set.
+        """
+        reference_data: Dict[str, Any] = {}
+        for stream_name, fields in stream_name_to_fields.items():
+            if stream_name not in self.streams.keys():
+                raise Exception(f"Tried to fetch reference data for stream '{stream_name}' but it was not found in catalog.")
+            stream = self.streams[stream_name]
+            stream_reference_data = stream.get_available_filters_reference_data(fields)
+            reference_data[stream_name] = stream_reference_data
+        return reference_data
+
+    def get_available_filters(self, catalog: Any = None) -> None:
+        """Build available-filters JSON and print it to stdout."""
+        if not catalog:
+            raise Exception("Catalog is required to get available filters.")
+        self.register_streams_from_catalog(catalog)
+
+        self.logger.info(f"Getting available filters for '{self.name}'.")
+
+        streams_filters_metadata: Dict[str, Any] = {}
+        for stream_name in sorted(self.streams.keys()):
+            stream = self.streams[stream_name]
+            if not stream.selected:
+                continue
+            stream_available_filters_metadata = stream.get_available_filters_metadata()
+            if stream_available_filters_metadata:
+                streams_filters_metadata[stream_name] = stream_available_filters_metadata
+        
+        reference_data_fields_metadata = self.extract_reference_data_fields_metadata(streams_filters_metadata)
+        reference_data = self.load_available_filters_reference_data(reference_data_fields_metadata)
+        payload = {
+            "filters_version": self.available_filters_version,
+            "reference_data": reference_data,
+            "streams": streams_filters_metadata,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2))
+        sys.stdout.flush()
+
     @classproperty
     def cli(cls) -> Callable:
         """Execute standard CLI handler for taps.
@@ -499,6 +585,11 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             help="Refresh the OAuth access token and update the config file.",
         )
         @click.option(
+            "--get-available-filters",
+            help="Get available filters for the tap.",
+            is_flag=True,
+        )
+        @click.option(
             "--selected-filters",
             help="Selected filters file location.",
             type=click.Path(),
@@ -517,6 +608,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             catalog: str = None,
             format: str = None,
             access_token: bool = False,
+            get_available_filters: bool = False,
             selected_filters: str = None,
         ) -> None:
             """Handle command line execution.
@@ -588,6 +680,8 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                 tap.run_discovery()
                 if test == CliTestOptionValue.All.value:
                     tap.run_connection_test()
+            elif get_available_filters:
+                tap.get_available_filters(catalog)
             elif test == CliTestOptionValue.All.value:
                 tap.run_connection_test()
             elif test == CliTestOptionValue.Schema.value:

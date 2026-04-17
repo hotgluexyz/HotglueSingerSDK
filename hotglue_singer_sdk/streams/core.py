@@ -165,6 +165,45 @@ class Stream(metaclass=abc.ABCMeta):
         """Setup selected filters for the stream."""
         pass
 
+    def get_available_filters_metadata(self) -> Dict[str, Any]:
+        """Describe available filters for this stream (for --get-available-filters).
+
+        Example:
+        {
+            "supported_operators": ["AND", "OR"],
+            "supports_nesting_clauses": True,
+            "filters": {
+                "filter_name": {
+                    "label": "Filter Name",
+                    "supported_operators": ["IN", "EQ"],
+                    "target_field": "field_name",
+                    "options": "reference_data.stream_name.field_name",
+                }
+            }
+        }
+
+        Override in taps that support user-configurable filters.
+        If no filters are supported, returns None.
+        """
+        pass
+
+    def get_available_filters_reference_data(self, fields_to_include: List[str]) -> List[Dict[str, Any]]:
+        """Get reference data for for the stream.
+
+        Args:
+            fields_to_include: List of fields to get reference data for. This is the list of fields that are used in the "options" field of the filters.
+
+        Returns:
+            A list of dictionaries, each dictionary is a record from the stream.
+            The records fields are filtered to only include the fields in the `fields_to_include` list.
+        """
+        records = []
+        for record in self.get_records(context={}):
+            filtered_record = {k: v for k, v in record.items() if k in fields_to_include}
+            if filtered_record:
+                records.append(filtered_record)
+        return records
+
     @property
     def stream_maps(self) -> List[StreamMap]:
         """Get stream transformation maps.
