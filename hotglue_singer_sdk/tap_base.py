@@ -514,7 +514,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
     def get_available_filters(self, catalog: Any = None) -> None:
         """Build available-filters JSON and print it to stdout."""
-        if not catalog:
+        if catalog is None:
             raise Exception("Catalog is required to get available filters.")
         self.register_streams_from_catalog(catalog)
 
