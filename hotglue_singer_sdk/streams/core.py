@@ -61,6 +61,8 @@ from hotglue_singer_sdk.helpers._typing import (
 from hotglue_singer_sdk.helpers._util import utc_now
 from hotglue_singer_sdk.mapper import RemoveRecordTransform, SameRecordTransform, StreamMap
 from hotglue_singer_sdk.plugin_base import PluginBase as TapBaseClass
+import isodate
+from datetime import timedelta
 
 # Replication methods
 REPLICATION_FULL_TABLE = "FULL_TABLE"
@@ -313,9 +315,22 @@ class Stream(metaclass=abc.ABCMeta):
             )
 
         return cast(datetime.datetime, pendulum.parse(value))
+
+    def iso_duration_to_timedelta(duration_str: str) -> timedelta:
+        duration = isodate.parse_duration(duration_str)
+        # `parse_duration` returns either timedelta or Duration (with months/years)
+        if isinstance(duration, timedelta):
+            return duration
+        # Approximate months and years
+        days = duration.years * 365 + duration.months * 30
+        return timedelta(days=days, seconds=duration.tdelta.seconds, microseconds=duration.tdelta.microseconds)
     
     def get_starting_time(self, context, is_inclusive=False):
         start_date = self.config.get("start_date")
+        start_date_offset = self.config.get("start_date_offset")
+        if start_date_offset:
+            start_date_offset = self.iso_duration_to_timedelta(start_date_offset)
+            start_date = start_date - start_date_offset
         if start_date:
             start_date = pendulum.parse(self.config.get("start_date"))
         rep_key = self.get_starting_timestamp(context)
