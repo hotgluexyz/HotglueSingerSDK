@@ -441,7 +441,7 @@ class Stream(metaclass=abc.ABCMeta):
                 value = replication_key_value
 
             # Use start_date if it is more recent than the replication_key state
-            start_date_value: Optional[str] = self.get_config_start_date(start_date_str=True)
+            start_date_value: Optional[str] = self.get_config_start_date(return_str=True)
             if start_date_value:
                 if not value:
                     value = start_date_value
