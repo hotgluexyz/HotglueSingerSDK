@@ -320,7 +320,7 @@ class Stream(metaclass=abc.ABCMeta):
         duration = isodate.parse_duration(duration_str)
         return duration
     
-    def get_config_start_date(self) -> datetime.datetime:
+    def get_config_start_date(self, start_date_str = False) -> datetime.datetime:
         start_date = self.config.get("start_date")
         start_date_offset = self.config.get("start_date_offset")
         if start_date_offset:
@@ -328,6 +328,8 @@ class Stream(metaclass=abc.ABCMeta):
             start_date = datetime.datetime.now(timezone.utc) - start_date_offset
         elif start_date:
             start_date = pendulum.parse(start_date)
+        if start_date_str:
+            return start_date.isoformat()
         return start_date
     
     def get_starting_time(self, context, is_inclusive=False):
@@ -442,7 +444,7 @@ class Stream(metaclass=abc.ABCMeta):
                 value = replication_key_value
 
             # Use start_date if it is more recent than the replication_key state
-            start_date_value: Optional[str] = self.get_config_start_date()
+            start_date_value: Optional[str] = self.get_config_start_date(start_date_str=True)
             if start_date_value:
                 if not value:
                     value = start_date_value
