@@ -62,7 +62,7 @@ from hotglue_singer_sdk.helpers._util import utc_now
 from hotglue_singer_sdk.mapper import RemoveRecordTransform, SameRecordTransform, StreamMap
 from hotglue_singer_sdk.plugin_base import PluginBase as TapBaseClass
 import isodate
-from datetime import timedelta, timezone
+from datetime import timezone
 
 # Replication methods
 REPLICATION_FULL_TABLE = "FULL_TABLE"
@@ -325,8 +325,11 @@ class Stream(metaclass=abc.ABCMeta):
             start_date = datetime.datetime.now(timezone.utc) - start_date_offset
         elif start_date_str:
             start_date = pendulum.parse(start_date_str)
+        
         if return_str and start_date_str:
-            start_date = start_date_str
+            if start_date_offset:
+                return start_date_str.isoformat()
+            return start_date_str
         return start_date
     
     def get_starting_time(self, context, is_inclusive=False):
