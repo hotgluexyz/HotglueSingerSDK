@@ -315,16 +315,12 @@ class Stream(metaclass=abc.ABCMeta):
             )
 
         return cast(datetime.datetime, pendulum.parse(value))
-
-    def iso_duration_to_timedelta(self, duration_str: str) -> timedelta:
-        duration = isodate.parse_duration(duration_str)
-        return duration
     
     def get_config_start_date(self, start_date_str = False) -> datetime.datetime:
         start_date = self.config.get("start_date")
         start_date_offset = self.config.get("start_date_offset")
         if start_date_offset:
-            start_date_offset = self.iso_duration_to_timedelta(start_date_offset)
+            start_date_offset = isodate.parse_duration(start_date_offset)
             start_date = datetime.datetime.now(timezone.utc) - start_date_offset
         elif start_date:
             start_date = pendulum.parse(start_date)
