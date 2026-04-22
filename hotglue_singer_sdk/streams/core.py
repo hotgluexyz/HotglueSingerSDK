@@ -328,7 +328,7 @@ class Stream(metaclass=abc.ABCMeta):
         
         if return_str and start_date_str:
             if start_date_offset:
-                return start_date_str.isoformat()
+                return start_date.isoformat()
             return start_date_str
         return start_date
     
