@@ -12,7 +12,6 @@ import requests
 from hotglue_singer_sdk.exceptions import RetriableAPIError
 
 logger = logging.getLogger(__name__)
-_RETRY_STATUS_CODES = {423, 429}
 
 
 @backoff.on_exception(
@@ -34,7 +33,7 @@ def _get_access_token_response(endpoint: str, api_key: str) -> requests.Response
         headers={"x-api-key": api_key},
     )
     status_code = token_response.status_code
-    if status_code in _RETRY_STATUS_CODES or 500 <= status_code <= 599:
+    if status_code in [429, 423] or 500 <= status_code <= 599:
         raise RetriableAPIError(token_response.text, token_response)
     token_response.raise_for_status()
     return token_response
