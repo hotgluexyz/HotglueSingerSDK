@@ -2,11 +2,42 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
+import backoff
 import requests
 
+from hotglue_singer_sdk.exceptions import RetriableAPIError
+
+logger = logging.getLogger(__name__)
+_RETRY_STATUS_CODES = {423, 429}
+
+
+@backoff.on_exception(
+    backoff.expo,
+    RetriableAPIError,
+    factor=2,
+    max_tries=8,
+    on_backoff=lambda details: logger.warning(
+        "Backing off Hotglue access token request for %.1f seconds after %s tries.",
+        details["wait"],
+        details["tries"],
+    ),
+)
+def _get_access_token_response(endpoint: str, api_key: str) -> requests.Response:
+    """Fetch a Hotglue access-token response."""
+    token_response = requests.get(
+        endpoint,
+        params={"include_properties": "expires_in"},
+        headers={"x-api-key": api_key},
+    )
+    status_code = token_response.status_code
+    if status_code in _RETRY_STATUS_CODES or 500 <= status_code <= 599:
+        raise RetriableAPIError(token_response.text, token_response)
+    token_response.raise_for_status()
+    return token_response
 
 
 def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, Any]:
@@ -48,17 +79,19 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
     endpoint = (
         f"{api_url}/{env_id}/{flow_id}/{tenant}/connectors/{connector_id}/accesstoken"
     )
-    token_response = requests.get(
-        endpoint,
-        params={"include_properties": "expires_in"},
-        headers={"x-api-key": api_key},
+    logger.info(
+        "Starting Hotglue access token request for env_id=%s flow=%s tenant=%s connector_id=%s.",
+        env_id,
+        flow_id,
+        tenant,
+        connector_id,
     )
     try:
-        token_response.raise_for_status()
-    except Exception as ex:
+        token_response = _get_access_token_response(endpoint, api_key)
+    except (RetriableAPIError, requests.HTTPError) as ex:
         raise RuntimeError(
             f"Failed Hotglue access token refresh, response was "
-            f"'{token_response.text}'. {ex}"
+            f"'{ex.response.text if ex.response is not None else ''}'. {ex}"
         ) from ex
 
     token_json = token_response.json()
@@ -75,4 +108,11 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
             "Hotglue access token refresh response did not include expires_in."
         )
 
+    logger.info(
+        "Fetched Hotglue access token for env_id=%s flow=%s tenant=%s connector_id=%s.",
+        env_id,
+        flow_id,
+        tenant,
+        connector_id,
+    )
     return token_json

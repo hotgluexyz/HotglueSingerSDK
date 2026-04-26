@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
-from urllib.parse import urlparse
+import requests
 
 from hotglue_singer_sdk.helpers._hotglue_api import fetch_access_token_from_hotglue_api
 
@@ -103,7 +104,7 @@ def test_fetch_access_token_missing_env_vars(monkeypatch):
 
 
 def test_fetch_access_token_http_error(monkeypatch):
-    """Raises RuntimeError when API returns non-2xx."""
+    """Retries transient API errors before raising RuntimeError."""
     monkeypatch.setenv("API_URL", "https://api.hotglue.com")
     monkeypatch.setenv("ENV_ID", "e")
     monkeypatch.setenv("FLOW", "f")
@@ -113,12 +114,61 @@ def test_fetch_access_token_http_error(monkeypatch):
     mock_response = MagicMock()
     mock_response.status_code = 500
     mock_response.text = "Internal Server Error"
-    mock_response.raise_for_status.side_effect = Exception("500")
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget, patch(
+        "backoff._sync.time.sleep"
+    ):
+        mget.return_value = mock_response
+        with pytest.raises(RuntimeError, match="Failed Hotglue access token refresh"):
+            fetch_access_token_from_hotglue_api("c1")
+    assert mget.call_count == 8
+
+
+def test_fetch_access_token_success_after_retry(monkeypatch):
+    """Returns response JSON when transient API error recovers."""
+    monkeypatch.setenv("API_URL", "https://api.hotglue.com")
+    monkeypatch.setenv("ENV_ID", "e")
+    monkeypatch.setenv("FLOW", "f")
+    monkeypatch.setenv("TENANT", "t")
+    monkeypatch.setenv("API_KEY", "k")
+
+    retry_response = MagicMock()
+    retry_response.status_code = 423
+    retry_response.text = "Locked"
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.json.return_value = {"success": True, "access_token": "x", "expires_in": 1}
+    success_response.raise_for_status = MagicMock()
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget, patch(
+        "backoff._sync.time.sleep"
+    ):
+        mget.side_effect = [retry_response, success_response]
+        result = fetch_access_token_from_hotglue_api("c1")
+    assert result["access_token"] == "x"
+    assert mget.call_count == 2
+
+
+def test_fetch_access_token_non_retryable_http_error(monkeypatch):
+    """Raises RuntimeError without retrying non-transient API errors."""
+    monkeypatch.setenv("API_URL", "https://api.hotglue.com")
+    monkeypatch.setenv("ENV_ID", "e")
+    monkeypatch.setenv("FLOW", "f")
+    monkeypatch.setenv("TENANT", "t")
+    monkeypatch.setenv("API_KEY", "k")
+
+    mock_response = MagicMock()
+    mock_response.status_code = 401
+    mock_response.text = "Unauthorized"
+    mock_response.raise_for_status.side_effect = requests.HTTPError(
+        "401", response=mock_response
+    )
 
     with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
         mget.return_value = mock_response
         with pytest.raises(RuntimeError, match="Failed Hotglue access token refresh"):
             fetch_access_token_from_hotglue_api("c1")
+    assert mget.call_count == 1
 
 
 def test_fetch_access_token_success_false(monkeypatch):
