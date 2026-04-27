@@ -320,7 +320,7 @@ class Stream(metaclass=abc.ABCMeta):
         start_date_str = self.config.get("start_date")
         start_date_offset = self.config.get("start_date_offset")
         start_date = None
-        if start_date_str and start_date_offset:
+        if start_date_offset:
             start_date_offset = isodate.parse_duration(start_date_offset)
             start_date = datetime.datetime.now(timezone.utc) - start_date_offset
         elif start_date_str:
