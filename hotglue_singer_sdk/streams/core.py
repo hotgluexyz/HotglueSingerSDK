@@ -61,6 +61,8 @@ from hotglue_singer_sdk.helpers._typing import (
 from hotglue_singer_sdk.helpers._util import utc_now
 from hotglue_singer_sdk.mapper import RemoveRecordTransform, SameRecordTransform, StreamMap
 from hotglue_singer_sdk.plugin_base import PluginBase as TapBaseClass
+import isodate
+from datetime import timezone
 
 # Replication methods
 REPLICATION_FULL_TABLE = "FULL_TABLE"
@@ -314,10 +316,24 @@ class Stream(metaclass=abc.ABCMeta):
 
         return cast(datetime.datetime, pendulum.parse(value))
     
+    def get_config_start_date(self, return_str = False) -> datetime.datetime:
+        start_date_str = self.config.get("start_date")
+        start_date_offset = self.config.get("start_date_offset")
+        start_date = None
+        if start_date_offset:
+            start_date_offset = isodate.parse_duration(start_date_offset)
+            start_date = datetime.datetime.now(timezone.utc) - start_date_offset
+        elif start_date_str:
+            start_date = pendulum.parse(start_date_str)
+        
+        if return_str and start_date_str:
+            if start_date_offset:
+                return start_date.isoformat()
+            return start_date_str
+        return start_date
+    
     def get_starting_time(self, context, is_inclusive=False):
-        start_date = self.config.get("start_date")
-        if start_date:
-            start_date = pendulum.parse(self.config.get("start_date"))
+        start_date = self.get_config_start_date()
         rep_key = self.get_starting_timestamp(context)
 
         if is_inclusive:
@@ -428,7 +444,7 @@ class Stream(metaclass=abc.ABCMeta):
                 value = replication_key_value
 
             # Use start_date if it is more recent than the replication_key state
-            start_date_value: Optional[str] = self.config.get("start_date")
+            start_date_value: Optional[str] = self.get_config_start_date(return_str=True)
             if start_date_value:
                 if not value:
                     value = start_date_value
