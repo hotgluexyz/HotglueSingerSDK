@@ -459,6 +459,7 @@ class PluginBase(metaclass=abc.ABCMeta):
             print(json.dumps(dict(access_token), indent=2, default=str))
             return access_token
         except Exception as ex:
+            cls.logger.error(str(ex), exc_info=True)
             print(json.dumps({"error": str(ex)}, indent=2))
 
     @classproperty
