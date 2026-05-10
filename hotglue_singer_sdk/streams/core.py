@@ -79,7 +79,7 @@ class Stream(metaclass=abc.ABCMeta):
     """Abstract base class for tap streams."""
 
     STATE_MSG_FREQUENCY = 10000  # Number of records between state messages
-    
+    _MAX_RECORDS_LIMIT: Optional[int] = None
 
     # Used for nested stream relationships
     parent_stream_type: Optional[Type["Stream"]] = None
@@ -130,7 +130,7 @@ class Stream(metaclass=abc.ABCMeta):
         self._minimum_start_time: Optional[datetime.datetime] = None
         self._selected_filters_version: Optional[str] = None
         self._selected_filters: Optional[dict] = None
-        self.max_records_limit: Optional[int] = None
+        self._MAX_RECORDS_LIMIT = self.config.get("_hg_max_records_limit", {}).get(self.name, None)
 
         if schema:
             if isinstance(schema, (PathLike, str)):
@@ -164,19 +164,6 @@ class Stream(metaclass=abc.ABCMeta):
             self._selected_filters = self._tap._selected_filters["streams"][self.name]
             self.logger.info(f"Stream: {self.name} - Selected filters version: {self._selected_filters_version} - Selected filters: {self._selected_filters}")
             self.setup_selected_filters()
-
-    @property
-    def _MAX_RECORDS_LIMIT(self) -> Optional[int]:
-        """Get the maximum number of records to sync.
-
-        Returns:
-            The maximum number of records to sync.
-        """
-        return self.max_records_limit or self.config.get("_hg_max_records_limit", {}).get(self.name, None)
-
-    @_MAX_RECORDS_LIMIT.setter
-    def _MAX_RECORDS_LIMIT(self, value: Optional[int]) -> None:
-        self.max_records_limit = value
 
     def setup_selected_filters(self) -> None:
         """Setup selected filters for the stream."""
