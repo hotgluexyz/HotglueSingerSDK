@@ -79,7 +79,7 @@ class Stream(metaclass=abc.ABCMeta):
     """Abstract base class for tap streams."""
 
     STATE_MSG_FREQUENCY = 10000  # Number of records between state messages
-    _MAX_RECORDS_LIMIT: Optional[int] = None
+    
 
     # Used for nested stream relationships
     parent_stream_type: Optional[Type["Stream"]] = None
@@ -163,6 +163,16 @@ class Stream(metaclass=abc.ABCMeta):
             self._selected_filters = self._tap._selected_filters["streams"][self.name]
             self.logger.info(f"Stream: {self.name} - Selected filters version: {self._selected_filters_version} - Selected filters: {self._selected_filters}")
             self.setup_selected_filters()
+
+
+    @property
+    def _MAX_RECORDS_LIMIT(self) -> Optional[int]:
+        """Get the maximum number of records to sync.
+
+        Returns:
+            The maximum number of records to sync.
+        """
+        return self.config.get("max_records_limit", {}).get(self.name, None)
 
     def setup_selected_filters(self) -> None:
         """Setup selected filters for the stream."""
