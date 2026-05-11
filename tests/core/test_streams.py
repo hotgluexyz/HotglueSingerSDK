@@ -174,6 +174,42 @@ def test_stream_apply_catalog(tap: SimpleTestTap, stream: SimpleTestStream):
     assert stream.forced_replication_method == REPLICATION_FULL_TABLE
 
 
+def test_stream_respects_max_records_limit(monkeypatch):
+    """Stream sync stops after the configured max record limit."""
+
+    class MaxRecordsTestStream(Stream):
+        name = "max_records"
+        schema = PropertiesList(Property("id", IntegerType, required=True)).to_dict()
+        replication_key = None
+
+        def get_records(self, context: Optional[dict]) -> Iterable[Dict[str, Any]]:
+            """Generate records."""
+            yield {"id": 1}
+            yield {"id": 2}
+            yield {"id": 3}
+
+    class MaxRecordsTestTap(Tap):
+        name = "max-records-test-tap"
+        settings_jsonschema = PropertiesList().to_dict()
+
+        def discover_streams(self) -> List[Stream]:
+            """List all streams."""
+            return [MaxRecordsTestStream(self)]
+
+    messages = []
+    monkeypatch.setattr(
+        "hotglue_singer_sdk.streams.core.singer.write_message", messages.append
+    )
+    tap = MaxRecordsTestTap(
+        config={"_hg_max_records_limit": {"max_records": 2}},
+        parse_env_config=False,
+    )
+    tap.sync_all()
+    records = [message.record for message in messages if message.type == "RECORD"]
+
+    assert records == [{"id": 1}, {"id": 2}]
+
+
 @pytest.mark.parametrize(
     "stream_name,bookmark_value,expected_starting_value",
     [
