@@ -8,6 +8,7 @@ import logging
 import requests
 
 from hotglue_singer_sdk.helpers._hotglue_api import fetch_access_token_from_hotglue_api
+import base64
 
 
 class Authenticator:
@@ -25,6 +26,74 @@ class Authenticator:
     @abstractmethod
     def auth_headers(self) -> dict:
         raise NotImplementedError()
+
+class BasicAuthenticator(Authenticator):
+    """Implements basic authentication for REST Streams.
+
+    This Authenticator implements basic authentication by concatinating a
+    username and password then base64 encoding the string. The resulting
+    token will be merged with any HTTP headers specified on the stream.
+    """
+
+    def __init__(
+        self,
+        target,
+        username: str,
+        password: str,
+    ) -> None:
+        """Create a new authenticator.
+
+        Args:
+            stream: The stream instance to use with this authenticator.
+            username: API username.
+            password: API password.
+        """
+        credentials = f"{username}:{password}".encode()
+        auth_token = base64.b64encode(credentials).decode("ascii")
+        auth_credentials = {"Authorization": f"Basic {auth_token}"}
+
+        if self._auth_headers is None:
+            self._auth_headers = {}
+        self._auth_headers.update(auth_credentials)
+    
+    @classmethod
+    def create_for_stream(
+        cls: type[Authenticator],
+        target,
+        username: str,
+        password: str,
+    ) -> Authenticator:
+        """Create an Authenticator object specific to the Stream class.
+
+        Args:
+            stream: The stream instance to use with this authenticator.
+            username: API username.
+            password: API password.
+
+        Returns:
+            BasicAuthenticator: A new
+                :class:`hotglue_singer_sdk.authenticators.BasicAuthenticator` instance.
+        """
+        return cls(target, username=username, password=password)
+
+class BearerTokenAuthenticator(Authenticator):
+    """Implements bearer token authentication for REST Streams.
+
+    This Authenticator implements Bearer Token authentication. The token
+    is a text string, included in the request header and prefixed with
+    'Bearer '. The token will be merged with HTTP headers on the stream.
+    """
+
+    def __init__(
+        self,
+        target
+    ) -> None:
+        """Init authenticator.
+        """
+        super().__init__(target)
+
+    def auth_headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._config['access_key']}"}
 
 
 class ApiAuthenticator(Authenticator):
