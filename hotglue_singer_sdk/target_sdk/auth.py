@@ -28,11 +28,11 @@ class Authenticator:
         raise NotImplementedError()
 
 class BasicAuthenticator(Authenticator):
-    """Implements basic authentication for REST Streams.
+    """Implements basic authentication.
 
     This Authenticator implements basic authentication by concatinating a
     username and password then base64 encoding the string. The resulting
-    token will be merged with any HTTP headers specified on the stream.
+    token will be merged with any HTTP headers specified on the target.
     """
 
     def __init__(
@@ -44,7 +44,7 @@ class BasicAuthenticator(Authenticator):
         """Create a new authenticator.
 
         Args:
-            stream: The stream instance to use with this authenticator.
+            target: The target instance to use with this authenticator.
             username: API username.
             password: API password.
         """
@@ -63,7 +63,7 @@ class BasicAuthenticator(Authenticator):
         username: str,
         password: str,
     ) -> Authenticator:
-        """Create an Authenticator object specific to the Stream class.
+        """Create an Authenticator object specific to the target.
 
         Args:
             stream: The stream instance to use with this authenticator.
@@ -71,17 +71,17 @@ class BasicAuthenticator(Authenticator):
             password: API password.
 
         Returns:
-            BasicAuthenticator: A new
-                :class:`hotglue_singer_sdk.authenticators.BasicAuthenticator` instance.
+            Authenticator: A new
+                :class:`hotglue_singer_sdk.target_sdk.auth.Authenticator` instance.
         """
         return cls(target, username=username, password=password)
 
 class BearerTokenAuthenticator(Authenticator):
-    """Implements bearer token authentication for REST Streams.
+    """Implements bearer token authentication.
 
     This Authenticator implements Bearer Token authentication. The token
     is a text string, included in the request header and prefixed with
-    'Bearer '. The token will be merged with HTTP headers on the stream.
+    'Bearer '. The token will be merged with HTTP headers on the target.
     """
 
     def __init__(
