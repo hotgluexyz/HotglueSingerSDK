@@ -6,7 +6,7 @@ import abc
 import copy
 import logging
 from datetime import datetime
-from typing import Any, Callable, Generator, Generic, Tuple, Type, Iterable, TypeVar, Union
+from typing import Any, Callable, Generator, Generic, List, Tuple, Type, Iterable, TypeVar, Union
 from urllib.parse import urlparse
 
 import backoff
@@ -76,6 +76,14 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             self.path = path
         self._http_headers: dict = {}
         self._requests_session = requests.Session()
+        if self.max_workers > 1:
+            pool_size = self.max_workers + 10
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=pool_size,
+                pool_maxsize=pool_size,
+            )
+            self._requests_session.mount("https://", adapter)
+            self._requests_session.mount("http://", adapter)
         self._compiled_jsonpath = None
         self._next_page_token_compiled_jsonpath = None
 
@@ -495,6 +503,23 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
         return DEFAULT_REQUEST_TIMEOUT
 
     # Records iterator
+
+    def _collect_records_for_window(self, window_context: dict) -> List[dict]:
+        """Paginate through a single window and return post-processed records.
+
+        Overrides the base Stream implementation to call request_records
+        directly instead of get_records. get_records calls get_paging_windows
+        internally, which recomputes the full window list from scratch and
+        ignores any window keys already present in the context. Calling
+        request_records directly uses the window context as-is (e.g.
+        created[gte]/created[lt]) without re-triggering window generation.
+        """
+        records = []
+        for record in self.request_records(window_context):
+            transformed = self.post_process(record, window_context)
+            if transformed is not None:
+                records.append(transformed)
+        return records
 
     def get_records(self, context: dict | None) -> Iterable[dict[str, Any]]:
         """Return a generator of row-type dictionary objects.
