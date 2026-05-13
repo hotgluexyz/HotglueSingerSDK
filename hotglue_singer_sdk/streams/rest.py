@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 import copy
 import logging
+import threading
 from datetime import datetime
 from typing import Any, Callable, Generator, Generic, List, Tuple, Type, Iterable, TypeVar, Union
 from urllib.parse import urlparse
@@ -76,6 +77,7 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             self.path = path
         self._http_headers: dict = {}
         self._requests_session = requests.Session()
+        self._sync_costs_lock = threading.Lock()
         if self.max_workers > 1:
             pool_size = self.max_workers + 10
             adapter = requests.adapters.HTTPAdapter(
@@ -388,10 +390,11 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             the "cost domains". See `calculate_sync_cost` for details.
         """
         call_costs = self.calculate_sync_cost(request, response, context)
-        self._sync_costs = {
-            k: self._sync_costs.get(k, 0) + call_costs.get(k, 0)
-            for k in call_costs.keys()
-        }
+        with self._sync_costs_lock:
+            self._sync_costs = {
+                k: self._sync_costs.get(k, 0) + call_costs.get(k, 0)
+                for k in call_costs.keys()
+            }
         return self._sync_costs
 
     # Overridable:

@@ -1180,14 +1180,14 @@ class Stream(metaclass=abc.ABCMeta):
                 f"{len(batch)} windows"
             )
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
-                futures = {
+                futures = [
                     executor.submit(
                         self._collect_records_for_window,
                         dict(base_context, **w),
-                    ): w
+                    )
                     for w in batch
-                }
-                for future in concurrent.futures.as_completed(futures):
+                ]
+                for future in futures:
                     yield from future.result()
             elapsed = time.monotonic() - batch_start
             wait = self.min_batch_interval - elapsed
