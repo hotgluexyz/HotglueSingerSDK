@@ -8,6 +8,7 @@ import logging
 import requests
 
 from hotglue_singer_sdk.helpers._hotglue_api import fetch_access_token_from_hotglue_api
+import base64
 
 
 class Authenticator:
@@ -25,6 +26,79 @@ class Authenticator:
     @abstractmethod
     def auth_headers(self) -> dict:
         raise NotImplementedError()
+
+class BasicAuthenticator(Authenticator):
+    """Implements basic authentication.
+
+    This Authenticator implements basic authentication by concatinating a
+    username and password then base64 encoding the string. The resulting
+    token will be merged with any HTTP headers specified on the target.
+    """
+
+    def __init__(
+        self,
+        target,
+        username: str,
+        password: str,
+    ) -> None:
+        """Create a new authenticator.
+
+        Args:
+            target: The target instance to use with this authenticator.
+            username: API username.
+            password: API password.
+        """
+        self.state = {}
+        credentials = f"{username}:{password}".encode()
+        auth_token = base64.b64encode(credentials).decode("ascii")
+        auth_credentials = {"Authorization": f"Basic {auth_token}"}
+
+        if self.auth_headers is None:
+            self.auth_headers = {}
+        self.auth_headers.update(auth_credentials)
+
+    auth_headers = None
+    
+    @classmethod
+    def create_for_stream(
+        cls: type[Authenticator],
+        target,
+        username: str,
+        password: str,
+    ) -> Authenticator:
+        """Create an Authenticator object specific to the target.
+
+        Args:
+            stream: The stream instance to use with this authenticator.
+            username: API username.
+            password: API password.
+
+        Returns:
+            Authenticator: A new
+                :class:`hotglue_singer_sdk.target_sdk.auth.Authenticator` instance.
+        """
+        return cls(target, username=username, password=password)
+
+class BearerTokenAuthenticator(Authenticator):
+    """Implements bearer token authentication.
+
+    This Authenticator implements Bearer Token authentication. The token
+    is a text string, included in the request header and prefixed with
+    'Bearer '. The token will be merged with HTTP headers on the target.
+    """
+
+    def __init__(
+        self,
+        target
+    ) -> None:
+        """Init authenticator.
+        """
+        super().__init__(target)
+
+    @property
+    @abstractmethod
+    def auth_headers(self) -> dict:
+        return {"Authorization": f"Bearer {self._config['access_key']}"}
 
 
 class ApiAuthenticator(Authenticator):
