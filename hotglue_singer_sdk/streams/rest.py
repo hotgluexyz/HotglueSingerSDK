@@ -510,13 +510,21 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
     def _collect_records_for_window(self, window_context: dict) -> List[dict]:
         """Paginate through a single window and return post-processed records.
 
-        Overrides the base Stream implementation to call request_records
-        directly instead of get_records. get_records calls get_paging_windows
-        internally, which recomputes the full window list from scratch and
-        ignores any window keys already present in the context. Calling
-        request_records directly uses the window context as-is (e.g.
-        created[gte]/created[lt]) without re-triggering window generation.
+        Calls request_records directly instead of get_records to avoid
+        re-triggering get_paging_windows, which would recompute the full
+        window list and ignore the window keys already present in the context
+        (e.g. created[gte]/created[lt]).
+
+        If a subclass overrides get_records with custom logic it must also
+        override this method; otherwise parallel window sync will silently
+        bypass that logic.
         """
+        if type(self).get_records is not RESTStream.get_records:
+            raise NotImplementedError(
+                f"{type(self).__name__} overrides get_records but not "
+                "_collect_records_for_window. Override _collect_records_for_window "
+                "to use max_workers > 1 on this stream."
+            )
         records = []
         for record in self.request_records(window_context):
             transformed = self.post_process(record, window_context)
