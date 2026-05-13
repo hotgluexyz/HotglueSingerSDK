@@ -48,18 +48,16 @@ class BasicAuthenticator(Authenticator):
             username: API username.
             password: API password.
         """
+        self.state = {}
         credentials = f"{username}:{password}".encode()
         auth_token = base64.b64encode(credentials).decode("ascii")
         auth_credentials = {"Authorization": f"Basic {auth_token}"}
 
-        if self._auth_headers is None:
-            self._auth_headers = {}
-        self._auth_headers.update(auth_credentials)
+        if self.auth_headers is None:
+            self.auth_headers = {}
+        self.auth_headers.update(auth_credentials)
 
-    @property
-    @abstractmethod
-    def auth_headers(self) -> dict:
-        return {}
+    auth_headers = None
     
     @classmethod
     def create_for_stream(
