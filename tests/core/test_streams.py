@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional, cast
 import pendulum
 import pytest
 import requests
+from singer import RecordMessage
 
 from hotglue_singer_sdk.helpers._classproperty import classproperty
 from hotglue_singer_sdk.helpers._singer import Catalog, MetadataMapping
@@ -205,7 +206,9 @@ def test_stream_respects_max_records_limit(monkeypatch):
         parse_env_config=False,
     )
     tap.sync_all()
-    records = [message.record for message in messages if message.type == "RECORD"]
+    records = [
+        message.record for message in messages if isinstance(message, RecordMessage)
+    ]
 
     assert records == [{"id": 1}, {"id": 2}]
 
