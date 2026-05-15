@@ -31,7 +31,7 @@ import singer
 import concurrent.futures
 from singer import RecordMessage, Schema, SchemaMessage, StateMessage
 
-from hotglue_singer_sdk.exceptions import InvalidStreamSortException, MaxRecordsLimitException
+from hotglue_singer_sdk.exceptions import InvalidStreamSortException
 from hotglue_singer_sdk.helpers._catalog import pop_deselected_record_properties
 from hotglue_singer_sdk.helpers._compat import final
 from hotglue_singer_sdk.helpers._flattening import get_flattening_options
@@ -130,6 +130,7 @@ class Stream(metaclass=abc.ABCMeta):
         self._minimum_start_time: Optional[datetime.datetime] = None
         self._selected_filters_version: Optional[str] = None
         self._selected_filters: Optional[dict] = None
+        self._MAX_RECORDS_LIMIT = self.config.get("_hg_max_records_limit", {}).get(self.name, None)
 
         if schema:
             if isinstance(schema, (PathLike, str)):
@@ -1064,14 +1065,10 @@ class Stream(metaclass=abc.ABCMeta):
         Raises:
             MaxRecordsLimitException: TODO.
         """
-        if (
+        return (
             self._MAX_RECORDS_LIMIT is not None
             and record_count >= self._MAX_RECORDS_LIMIT
-        ):
-            raise MaxRecordsLimitException(
-                "Stream prematurely aborted due to the stream's max record "
-                f"limit ({self._MAX_RECORDS_LIMIT}) being reached."
-            )
+        )
 
     # Handle interim stream state
 
@@ -1207,7 +1204,6 @@ class Stream(metaclass=abc.ABCMeta):
                             paralellization_context = []
                     else:
                         self._sync_children(child_context)
-                self._check_max_record_limit(record_count)
                 if selected:
                     if (record_count - 1) % self.STATE_MSG_FREQUENCY == 0:
                         self._write_state_message()
@@ -1244,6 +1240,9 @@ class Stream(metaclass=abc.ABCMeta):
 
                 record_count += 1
                 partition_record_count += 1
+
+                if self._check_max_record_limit(record_count):
+                    return
             
             # if parallelization context is not empty, sync the children with threads
             if use_threads and len(paralellization_context) > 0:
