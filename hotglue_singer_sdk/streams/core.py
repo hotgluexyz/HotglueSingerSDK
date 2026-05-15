@@ -29,6 +29,7 @@ import pendulum
 import requests
 import singer
 import concurrent.futures
+import time
 from singer import RecordMessage, Schema, SchemaMessage, StateMessage
 
 from hotglue_singer_sdk.exceptions import InvalidStreamSortException
@@ -85,6 +86,10 @@ class Stream(metaclass=abc.ABCMeta):
     parent_stream_type: Optional[Type["Stream"]] = None
     ignore_parent_replication_key: bool = False
     parallelization_limit: int = 1
+
+    # Window-level parallelism (paging windows fetched concurrently)
+    max_workers: int = 1
+    min_batch_interval: float = 0.0
 
     # Internal API cost aggregator
     _sync_costs: Dict[str, int] = {}
@@ -1138,7 +1143,57 @@ class Stream(metaclass=abc.ABCMeta):
             for future in concurrent.futures.as_completed(futures):
                 # Yield records
                 future.result()
-    
+
+    def _collect_records_for_window(self, window_context: dict) -> List[dict]:
+        """Collect all records for a single paging window into a list.
+
+        Override in subclasses for more efficient collection (e.g. RESTStream
+        calls request_records directly to avoid a redundant post_process pass).
+        """
+        return list(self.get_records(window_context))
+
+    def _sync_records_parallel(
+        self,
+        current_context: Optional[dict],
+        windows: List[dict],
+    ) -> Iterable[Union[dict, Tuple[dict, dict]]]:
+        """Yield records from all paging windows, dispatching batches in parallel.
+
+        Each batch of up to max_workers windows runs concurrently in a thread
+        pool. If min_batch_interval > 0, a minimum wall-clock wait is enforced
+        between batches to honour per-second API rate limits.
+        """
+        workers = min(self.max_workers, len(windows))
+        base_context = current_context or {}
+        self.logger.info(
+            f"[{self.name}] parallel sync: {len(windows)} windows, "
+            f"batch_size={workers}, max_workers={self.max_workers}"
+        )
+        for i in range(0, len(windows), workers):
+            batch = windows[i : i + workers]
+            batch_start = time.monotonic()
+            self.logger.info(
+                f"[{self.name}] dispatching batch {i // workers + 1}: "
+                f"{len(batch)} windows"
+            )
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                futures = [
+                    executor.submit(
+                        self._collect_records_for_window,
+                        dict(base_context, **w),
+                    )
+                    for w in batch
+                ]
+                for future in futures:
+                    yield from future.result()
+            elapsed = time.monotonic() - batch_start
+            wait = self.min_batch_interval - elapsed
+            if wait > 0:
+                self.logger.debug(
+                    f"Batch done in {elapsed:.2f}s, sleeping {wait:.2f}s for rate limiting."
+                )
+                time.sleep(wait)
+
     # Private sync methods:
 
     def _sync_records(  # noqa C901  # too complex
@@ -1177,7 +1232,22 @@ class Stream(metaclass=abc.ABCMeta):
             # create a list of child contexts to use for parallelization
             paralellization_context = []
 
-            for record_result in self.get_records(current_context):
+            # concurrent window sync is only for root streams; child streams are parallelized via _sync_children_with_threads
+            use_parallel_windows = (
+                self.max_workers > 1
+                and not self.parent_stream_type
+            )
+            if use_parallel_windows:
+                # a single window means no parallelism gain; fall back to serial
+                windows = self.get_paging_windows(current_context)
+                use_parallel_windows = len(windows) > 1
+            records_iter = (
+                self._sync_records_parallel(current_context, windows)
+                if use_parallel_windows
+                else self.get_records(current_context)
+            )
+
+            for record_result in records_iter:
                 if isinstance(record_result, tuple):
                     # Tuple items should be the record and the child context
                     record, child_context = record_result
