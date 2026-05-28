@@ -381,6 +381,13 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             raise ValueError("Cannot write to uninitialized state dictionary.")
 
         for stream_name, stream_state in state.get("bookmarks", {}).items():
+            if not isinstance(stream_state, dict):
+                self.logger.debug(
+                    "Skipping non-dict bookmark for stream '%s': %r",
+                    stream_name,
+                    stream_state,
+                )
+                continue
             for key, val in stream_state.items():
                 write_stream_state(
                     self.state,
