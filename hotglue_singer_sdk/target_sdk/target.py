@@ -188,7 +188,7 @@ class TargetHotglue(Target):
                 for sink_class in self.SINK_TYPES
                 if sink_class.name.lower() == stream_name.lower()
             ),
-            None,
+            self.default_sink_class,
         )
 
     def read_snapshot(self, object_name: str) -> pd.DataFrame:
