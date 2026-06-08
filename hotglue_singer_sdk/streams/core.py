@@ -1374,6 +1374,10 @@ class Stream(metaclass=abc.ABCMeta):
         Taps may override to provide a pre-sync record total for progress reporting.
         Return None if estimation is not supported for this stream.
 
+        .. note::
+            This hook runs before ``Tap._set_compatible_replication_methods``.
+            Mind parent stream replication methods when overriding this method.
+
         Args:
             context: Stream partition or context dictionary.
         """
