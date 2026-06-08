@@ -16,19 +16,28 @@ class EstimatedCountStream(Stream):
         Property("value", StringType, required=True),
     ).to_dict()
 
-    def __init__(self, tap: Tap, estimated_total: Optional[int] = None):
+    def __init__(self, tap: Tap):
         super().__init__(tap, schema=self.schema, name=self.name)
-        self._estimated_total = estimated_total
 
     def get_records(self, context: Optional[dict]) -> Iterable[dict]:
         yield {"id": 1, "value": "test"}
 
     def get_estimated_record_count(self, context: Optional[dict] = None) -> Optional[int]:
-        return self._estimated_total
+        return 42
 
 
-class UnsupportedCountStream(EstimatedCountStream):
+class UnsupportedCountStream(Stream):
     name = "unsupported"
+    schema = PropertiesList(
+        Property("id", IntegerType, required=True),
+        Property("value", StringType, required=True),
+    ).to_dict()
+
+    def __init__(self, tap: Tap):
+        super().__init__(tap, schema=self.schema, name=self.name)
+
+    def get_records(self, context: Optional[dict]) -> Iterable[dict]:
+        yield {"id": 1, "value": "test"}
 
 
 class EstimatedRecordTotalsTap(Tap):
@@ -40,8 +49,8 @@ class EstimatedRecordTotalsTap(Tap):
 
     def discover_streams(self) -> List[Stream]:
         return [
-            EstimatedCountStream(self, estimated_total=42),
-            UnsupportedCountStream(self, estimated_total=None),
+            EstimatedCountStream(self),
+            UnsupportedCountStream(self),
         ]
 
 
