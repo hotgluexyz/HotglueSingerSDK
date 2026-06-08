@@ -423,7 +423,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
     def _write_estimated_total_metric(self, stream_name: str, estimated_total: int) -> None:
         """Write a stream's estimated record count to estimated_job_metrics.json."""
-        sync_output_dir = self.config.get("hg_sync_output")
+        sync_output_dir = self._config.get("hg_sync_output")
         metrics_path = Path(sync_output_dir).expanduser() / "estimated_job_metrics.json"
 
         try:
