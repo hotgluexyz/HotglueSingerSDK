@@ -1368,6 +1368,17 @@ class Stream(metaclass=abc.ABCMeta):
 
         return context or record
 
+    def get_estimated_record_count(self, context: Optional[dict] = None) -> Optional[int]:
+        """Return estimated record count before sync, if supported.
+
+        Taps may override to provide a pre-sync record total for progress reporting.
+        Return None if estimation is not supported for this stream.
+
+        Args:
+            context: Stream partition or context dictionary.
+        """
+        return None
+
     # Abstract Methods
 
     @abc.abstractmethod
