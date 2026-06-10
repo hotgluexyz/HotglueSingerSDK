@@ -42,7 +42,7 @@ from hotglue_etl_exceptions import InvalidCredentialsError
 
 
 SDK_PACKAGE_NAME = "hotglue_singer_sdk"
-SDK_DISPLAY_NAME = "Hotglue Singer SDK"
+SDK_DISPLAY_NAME = "HotglueSingerSDK"
 
 
 JSONSchemaValidator = extend_validator_with_defaults(Draft4Validator)
