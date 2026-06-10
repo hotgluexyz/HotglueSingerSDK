@@ -42,6 +42,7 @@ from hotglue_etl_exceptions import InvalidCredentialsError
 
 
 SDK_PACKAGE_NAME = "hotglue_singer_sdk"
+SDK_DISPLAY_NAME = "Hotglue Singer SDK"
 
 
 JSONSchemaValidator = extend_validator_with_defaults(Draft4Validator)
@@ -174,11 +175,20 @@ class PluginBase(metaclass=abc.ABCMeta):
         return version
 
     @classproperty
+    def sdk_name(cls) -> str:
+        """Return the SDK package display name.
+
+        Returns:
+            Hotglue Singer SDK display name.
+        """
+        return SDK_DISPLAY_NAME
+
+    @classproperty
     def sdk_version(cls) -> str:
         """Return the package version number.
 
         Returns:
-            Meltano SDK version number.
+            Hotglue Singer SDK version number.
         """
         try:
             version = metadata.version(SDK_PACKAGE_NAME)
@@ -308,6 +318,7 @@ class PluginBase(metaclass=abc.ABCMeta):
         info["name"] = cls.name
         info["description"] = cls.__doc__
         info["version"] = cls.plugin_version
+        info["sdk_name"] = cls.sdk_name
         info["sdk_version"] = cls.sdk_version
         info["capabilities"] = cls.capabilities
         info["alerting_level"] = cls.alerting_level.value
