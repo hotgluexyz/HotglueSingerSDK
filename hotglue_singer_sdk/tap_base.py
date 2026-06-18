@@ -421,72 +421,6 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                     stream.replication_key = None
                     stream.forced_replication_method = "FULL_TABLE"
 
-    def _write_estimated_total_metric(self, stream_name: str, estimated_total: int) -> None:
-        """Write a stream's estimated record count to estimated_job_metrics.json."""
-        sync_output_dir = self._config.get("hg_sync_output")
-        metrics_path = Path(sync_output_dir).expanduser() / "estimated_job_metrics.json"
-
-        try:
-            content = json.loads(metrics_path.read_text())
-        except (FileNotFoundError, json.JSONDecodeError):
-            content = {}
-
-        estimated_totals = content.setdefault("estimatedRecordCount", {})
-        estimated_totals[stream_name] = estimated_total
-
-        self.logger.info(
-            "Writing estimated total metric stream='%s' total=%s path='%s'",
-            stream_name,
-            estimated_total,
-            metrics_path.resolve(),
-        )
-
-        tmp_path = metrics_path.with_suffix(f"{metrics_path.suffix}.tmp")
-        tmp_path.write_text(json.dumps(content))
-        tmp_path.replace(metrics_path)
-
-    def _emit_estimated_record_totals_snapshot(self) -> None:
-        """Emit estimated record totals before sync begins.
-
-        Streams that support pre-sync count estimation should override
-        :meth:`~hotglue_singer_sdk.streams.core.Stream.get_estimated_record_count`.
-        """
-        init_log_emitted = False
-
-        stream: "Stream"
-        for stream in self.streams.values():
-            if not stream.selected:
-                continue
-
-            if stream.parent_stream_type:
-                #mirrors sync_all logic, children are not invoked directly
-                continue
-
-            try:
-                total_records = stream.get_estimated_record_count()
-                if total_records is None:
-                    continue
-
-                if not init_log_emitted:
-                    self.logger.info("Starting estimated record totals snapshot.")
-                    init_log_emitted = True
-
-                self.logger.info(
-                    "Estimated records for stream='%s': %s",
-                    stream.name,
-                    total_records,
-                )
-                self._write_estimated_total_metric(stream.name, total_records)
-            except Exception as exc:
-                self.logger.warning(
-                    "Failed to collect pre-sync total for stream '%s': %s",
-                    stream.name,
-                    exc,
-                )
-
-        if init_log_emitted:
-            self.logger.info("Finished estimated record totals snapshot.")
-
     # Sync methods
 
     def run_sync(self, catalog: Any = None, state: Any = None) -> None:
@@ -497,7 +431,6 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         """
         self.register_streams_from_catalog(catalog)
         self.register_state_from_file(state)
-        self._emit_estimated_record_totals_snapshot()
         self.sync_all()
 
     @final
