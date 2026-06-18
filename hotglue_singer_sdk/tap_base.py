@@ -455,7 +455,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
         stream: "Stream"
         for stream in self.streams.values():
-            if not stream.selected and not stream.has_selected_descendents:
+            if not stream.selected:
                 continue
 
             if stream.parent_stream_type:
