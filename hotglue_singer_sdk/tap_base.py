@@ -432,7 +432,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             content = {}
 
         estimated_totals = content.setdefault("estimatedRecordCount", {})
-        estimated_totals[stream_name] = estimated_totals.get(stream_name, 0) + estimated_total
+        estimated_totals[stream_name] = estimated_total
 
         self.logger.info(
             "Writing estimated total metric stream='%s' total=%s path='%s'",
