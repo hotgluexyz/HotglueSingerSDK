@@ -463,6 +463,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                 continue
 
             try:
+                stream._write_starting_replication_value(None)
                 total_records = stream.get_estimated_record_count()
                 if total_records is None:
                     continue
@@ -488,6 +489,10 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             self.logger.info("Finished estimated record totals snapshot.")
 
     # Sync methods
+    def _prepare_sync(self) -> None:
+        """Prepare stream state and replication methods before sync."""
+        self._reset_state_progress_markers()
+        self._set_compatible_replication_methods()
 
     def run_sync(self, catalog: Any = None, state: Any = None) -> None:
         """Run the tap's sync operation.
@@ -497,14 +502,13 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         """
         self.register_streams_from_catalog(catalog)
         self.register_state_from_file(state)
+        self._prepare_sync()
         self._emit_estimated_record_totals_snapshot()
         self.sync_all()
 
     @final
     def sync_all(self) -> None:
         """Sync all streams."""
-        self._reset_state_progress_markers()
-        self._set_compatible_replication_methods()
         stream: "Stream"
         for stream in self.streams.values():
             if not stream.selected and not stream.has_selected_descendents:

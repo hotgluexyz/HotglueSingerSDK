@@ -1375,8 +1375,8 @@ class Stream(metaclass=abc.ABCMeta):
         Return None if estimation is not supported for this stream.
 
         .. note::
-            This hook runs before ``Tap._set_compatible_replication_methods``.
-            Mind parent stream replication methods when overriding this method.
+            This hook runs after ``Tap._set_compatible_replication_methods`` and
+            after the stream's starting replication value is initialized.
 
         Args:
             context: Stream partition or context dictionary.
