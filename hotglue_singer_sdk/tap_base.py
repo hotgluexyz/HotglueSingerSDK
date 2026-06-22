@@ -452,7 +452,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         :meth:`~hotglue_singer_sdk.streams.core.Stream.get_estimated_record_count`.
         """
         init_log_emitted = False
-
+        self._prepare_state_and_replication_methods()
         stream: "Stream"
         for stream in self.streams.values():
             if not stream.selected:
@@ -489,8 +489,8 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             self.logger.info("Finished estimated record totals snapshot.")
 
     # Sync methods
-    def _prepare_sync(self) -> None:
-        """Prepare stream state and replication methods before sync."""
+    def _prepare_state_and_replication_methods(self) -> None:
+        """Prepare stream state and replication methods before a tap run."""
         self._reset_state_progress_markers()
         self._set_compatible_replication_methods()
 
@@ -502,13 +502,13 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         """
         self.register_streams_from_catalog(catalog)
         self.register_state_from_file(state)
-        self._prepare_sync()
         self._emit_estimated_record_totals_snapshot()
         self.sync_all()
 
     @final
     def sync_all(self) -> None:
         """Sync all streams."""
+        self._prepare_state_and_replication_methods()
         stream: "Stream"
         for stream in self.streams.values():
             if not stream.selected and not stream.has_selected_descendents:
