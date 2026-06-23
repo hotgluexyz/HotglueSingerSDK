@@ -38,7 +38,10 @@ include = [
 python = "<3.15,>=3.7.1"
 pipelinewise-singer-python = "1.2.0"
 backoff = ">=1.8.0,<2.0"
-pendulum = ">=2.1.0,<4.0"
+pendulum = [
+    { version = ">=2.1.0,<3.0", python = "<3.14" },
+    { version = ">=3.2.0,<4.0", python = ">=3.14" },
+]
 click = "~=8.0"
 PyJWT = "~=2.4"
 requests = "^2.25.1"
@@ -53,6 +56,9 @@ jsonpath-ng = "^1.5.3"
 joblib = "^1.0.1"
 inflection = "^0.5.1"
 sqlalchemy = "^1.4"
+# greenlet is pulled in transitively by sqlalchemy; pin a 3.14-compatible floor
+# since older releases (<3.2.0) have no cp314 wheels and fail to compile on 3.14.
+greenlet = { version = ">=3.2.0", python = ">=3.14" }
 python-dotenv = "^0.20.0"
 typing-extensions = "^4.2.0"
 pydantic = [
