@@ -88,9 +88,6 @@ class Stream(metaclass=abc.ABCMeta):
     ignore_parent_replication_key: bool = False
     parallelization_limit: int = 1
 
-    # Window-level parallelism (paging windows fetched concurrently)
-    min_batch_interval: float = 0.0
-
     # Internal API cost aggregator
     _sync_costs: Dict[str, int] = {}
 
@@ -1165,8 +1162,7 @@ class Stream(metaclass=abc.ABCMeta):
         """Yield records from all paging windows, dispatching batches in parallel.
 
         Each batch of up to parallelization_limit windows runs concurrently in a
-        thread pool. If min_batch_interval > 0, a minimum wall-clock wait is
-        enforced between batches to honour per-second API rate limits.
+        thread pool.
         """
         workers = min(max(1, self.parallelization_limit), len(windows))
         base_context = current_context or {}
@@ -1205,13 +1201,6 @@ class Stream(metaclass=abc.ABCMeta):
                         yield item
                 for future in futures:
                     future.result()
-            elapsed = time.monotonic() - batch_start
-            wait = self.min_batch_interval - elapsed
-            if wait > 0:
-                self.logger.debug(
-                    f"Batch done in {elapsed:.2f}s, sleeping {wait:.2f}s for rate limiting."
-                )
-                time.sleep(wait)
 
     # Private sync methods:
 
