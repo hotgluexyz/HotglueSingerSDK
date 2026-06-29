@@ -7,7 +7,7 @@ import copy
 import logging
 import threading
 from datetime import datetime
-from typing import Any, Callable, Generator, Generic, List, Tuple, Type, Iterable, TypeVar, Union
+from typing import Any, Callable, Generator, Generic, Tuple, Type, Iterable, TypeVar, Union
 from urllib.parse import urlparse
 
 import backoff
@@ -78,8 +78,8 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
         self._http_headers: dict = {}
         self._requests_session = requests.Session()
         self._sync_costs_lock = threading.Lock()
-        if self.max_workers > 1:
-            pool_size = self.max_workers + 10
+        if self.parallelization_limit > 1:
+            pool_size = self.parallelization_limit + 10
             adapter = requests.adapters.HTTPAdapter(
                 pool_connections=pool_size,
                 pool_maxsize=pool_size,
@@ -507,7 +507,7 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
 
     # Records iterator
 
-    def _collect_records_for_window(self, window_context: dict) -> List[dict]:
+    def _collect_records_for_window(self, window_context: dict) -> Iterable[dict]:
         """Paginate through a single window and return post-processed records.
 
         Calls request_records directly instead of get_records to avoid
@@ -523,14 +523,12 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             raise NotImplementedError(
                 f"{type(self).__name__} overrides get_records but not "
                 "_collect_records_for_window. Override _collect_records_for_window "
-                "to use max_workers > 1 on this stream."
+                "to use parallelization_limit > 1 on this stream."
             )
-        records = []
         for record in self.request_records(window_context):
             transformed = self.post_process(record, window_context)
             if transformed is not None:
-                records.append(transformed)
-        return records
+                yield transformed
 
     def get_records(self, context: dict | None) -> Iterable[dict[str, Any]]:
         """Return a generator of row-type dictionary objects.

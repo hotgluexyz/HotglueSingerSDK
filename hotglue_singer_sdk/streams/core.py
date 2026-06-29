@@ -29,6 +29,7 @@ import pendulum
 import requests
 import singer
 import concurrent.futures
+import queue
 import time
 from singer import RecordMessage, Schema, SchemaMessage, StateMessage
 
@@ -88,7 +89,6 @@ class Stream(metaclass=abc.ABCMeta):
     parallelization_limit: int = 1
 
     # Window-level parallelism (paging windows fetched concurrently)
-    max_workers: int = 1
     min_batch_interval: float = 0.0
 
     # Internal API cost aggregator
@@ -1147,13 +1147,15 @@ class Stream(metaclass=abc.ABCMeta):
                 # Yield records
                 future.result()
 
-    def _collect_records_for_window(self, window_context: dict) -> List[dict]:
-        """Collect all records for a single paging window into a list.
+    def _collect_records_for_window(
+        self, window_context: dict
+    ) -> Iterable[Union[dict, Tuple[dict, dict]]]:
+        """Collect all records for a single paging window.
 
         Override in subclasses for more efficient collection (e.g. RESTStream
         calls request_records directly to avoid a redundant post_process pass).
         """
-        return list(self.get_records(window_context))
+        yield from self.get_records(window_context)
 
     def _sync_records_parallel(
         self,
@@ -1162,15 +1164,15 @@ class Stream(metaclass=abc.ABCMeta):
     ) -> Iterable[Union[dict, Tuple[dict, dict]]]:
         """Yield records from all paging windows, dispatching batches in parallel.
 
-        Each batch of up to max_workers windows runs concurrently in a thread
-        pool. If min_batch_interval > 0, a minimum wall-clock wait is enforced
-        between batches to honour per-second API rate limits.
+        Each batch of up to parallelization_limit windows runs concurrently in a
+        thread pool. If min_batch_interval > 0, a minimum wall-clock wait is
+        enforced between batches to honour per-second API rate limits.
         """
-        workers = min(self.max_workers, len(windows))
+        workers = min(max(1, self.parallelization_limit), len(windows))
         base_context = current_context or {}
         self.logger.info(
             f"[{self.name}] parallel sync: {len(windows)} windows, "
-            f"batch_size={workers}, max_workers={self.max_workers}"
+            f"batch_size={workers}, parallelization_limit={self.parallelization_limit}"
         )
         for i in range(0, len(windows), workers):
             batch = windows[i : i + workers]
@@ -1179,16 +1181,30 @@ class Stream(metaclass=abc.ABCMeta):
                 f"[{self.name}] dispatching batch {i // workers + 1}: "
                 f"{len(batch)} windows"
             )
+            records_queue: queue.Queue = queue.Queue()
+            complete_marker = object()
+
+            def run_window(window_context: dict) -> None:
+                try:
+                    for record in self._collect_records_for_window(window_context):
+                        records_queue.put(record)
+                finally:
+                    records_queue.put(complete_marker)
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
                 futures = [
-                    executor.submit(
-                        self._collect_records_for_window,
-                        dict(base_context, **w),
-                    )
-                    for w in batch
+                    executor.submit(run_window, dict(base_context, **window))
+                    for window in batch
                 ]
+                remaining = len(futures)
+                while remaining:
+                    item = records_queue.get()
+                    if item is complete_marker:
+                        remaining -= 1
+                    else:
+                        yield item
                 for future in futures:
-                    yield from future.result()
+                    future.result()
             elapsed = time.monotonic() - batch_start
             wait = self.min_batch_interval - elapsed
             if wait > 0:
@@ -1237,8 +1253,7 @@ class Stream(metaclass=abc.ABCMeta):
 
             # concurrent window sync is only for root streams; child streams are parallelized via _sync_children_with_threads
             use_parallel_windows = (
-                self.max_workers > 1
-                and not self.parent_stream_type
+                self.parallelization_limit > 1
             )
             if use_parallel_windows:
                 # a single window means no parallelism gain; fall back to serial
