@@ -649,7 +649,7 @@ def test_sync_records_parallel_respects_parallelization_limit(tap: SimpleTestTap
             self.max_concurrent_windows = 0
             self._window_lock = threading.Lock()
 
-        def _collect_records_for_window(self, window_context: dict):
+        def _get_records_for_window(self, window_context: dict):
             with self._window_lock:
                 self._active_windows += 1
                 self.max_concurrent_windows = max(
@@ -678,7 +678,7 @@ def test_sync_records_parallel_propagates_window_error(tap: SimpleTestTap):
     class WindowStream(SimpleTestStream):
         parallelization_limit = 2
 
-        def _collect_records_for_window(self, window_context: dict):
+        def _get_records_for_window(self, window_context: dict):
             if window_context["window"] == "bad":
                 raise RuntimeError("window failed")
             yield {
@@ -721,7 +721,7 @@ def test_child_stream_can_use_parallel_windows(tap: SimpleTestTap):
     stream._sync_records()
 
 
-def test_rest_collect_records_for_window_streams_results(tap: SimpleTestTap):
+def test_rest_get_records_for_window_streams_results(tap: SimpleTestTap):
     """REST window collection should yield records incrementally."""
 
     stream = RestTestStream(tap)
@@ -731,7 +731,7 @@ def test_rest_collect_records_for_window_streams_results(tap: SimpleTestTap):
         raise RuntimeError("boom")
 
     stream.request_records = request_records
-    iterator = stream._collect_records_for_window({})
+    iterator = stream._get_records_for_window({})
 
     assert next(iterator) == {"id": 1, "value": "a"}
     with pytest.raises(RuntimeError, match="boom"):

@@ -1140,10 +1140,10 @@ class Stream(metaclass=abc.ABCMeta):
                 # Yield records
                 future.result()
 
-    def _collect_records_for_window(
+    def _get_records_for_window(
         self, window_context: dict
     ) -> Iterable[Union[dict, Tuple[dict, dict]]]:
-        """Collect all records for a single paging window.
+        """Return all records for a single paging window.
 
         Override in subclasses for more efficient collection (e.g. RESTStream
         calls request_records directly to avoid a redundant post_process pass).
@@ -1177,7 +1177,7 @@ class Stream(metaclass=abc.ABCMeta):
 
             def run_window(window_context: dict) -> None:
                 try:
-                    for record in self._collect_records_for_window(window_context):
+                    for record in self._get_records_for_window(window_context):
                         records_queue.put(record)
                 finally:
                     records_queue.put(complete_marker)

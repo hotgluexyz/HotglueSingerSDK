@@ -507,23 +507,11 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
 
     # Records iterator
 
-    def _collect_records_for_window(self, window_context: dict) -> Iterable[dict]:
-        """Paginate through a single window and return post-processed records.
-
-        Calls request_records directly instead of get_records to avoid
-        re-triggering get_paging_windows, which would recompute the full
-        window list and ignore the window keys already present in the context
-        (e.g. created[gte]/created[lt]).
-
-        If a subclass overrides get_records with custom logic it must also
-        override this method; otherwise parallel window sync will silently
-        bypass that logic.
-        """
+    def _get_records_for_window(self, window_context: dict) -> Iterable[dict]:
         if type(self).get_records is not RESTStream.get_records:
             raise NotImplementedError(
-                f"{type(self).__name__} overrides get_records but not "
-                "_collect_records_for_window. Override _collect_records_for_window "
-                "to use parallelization_limit > 1 on this stream."
+                f"{type(self).__name__} overrides get_records. Override "
+                "_get_records_for_window instead to use parallelization_limit > 1."
             )
         for record in self.request_records(window_context):
             transformed = self.post_process(record, window_context)
@@ -542,16 +530,10 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             One item per (possibly processed) record in the API.
         """
         context = context or {}
-        paging_windows = self.get_paging_windows(context) or [{}]
-        for paging_window in paging_windows:
+        for paging_window in self.get_paging_windows(context) or [{}]:
             window_context = context.copy()
             window_context.update(paging_window)
-            for record in self.request_records(window_context):
-                transformed_record = self.post_process(record, window_context)
-                if transformed_record is None:
-                    # Record filtered out during post_process()
-                    continue
-                yield transformed_record
+            yield from self._get_records_for_window(window_context)
 
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         """Parse the response and return an iterator of result rows.
