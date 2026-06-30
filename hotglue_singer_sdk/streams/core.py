@@ -1235,14 +1235,9 @@ class Stream(metaclass=abc.ABCMeta):
             # create a list of child contexts to use for parallelization
             paralellization_context = []
 
-            # concurrent window sync is only for root streams; child streams are parallelized via _sync_children_with_threads
-            use_parallel_windows = (
-                self.parallelization_limit > 1
-            )
-            if use_parallel_windows:
-                # a single window means no parallelism gain; fall back to serial
-                windows = self.get_paging_windows(current_context)
-                use_parallel_windows = len(windows) > 1
+            windows = self.get_paging_windows(current_context)
+            use_parallel_windows = len(windows) > 1 and self.parallelization_limit > 1
+
             records_iter = (
                 self._sync_records_parallel(current_context, windows)
                 if use_parallel_windows
