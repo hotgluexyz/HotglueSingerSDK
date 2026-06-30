@@ -30,7 +30,6 @@ import requests
 import singer
 import concurrent.futures
 import queue
-import time
 from singer import RecordMessage, Schema, SchemaMessage, StateMessage
 
 from hotglue_singer_sdk.exceptions import InvalidStreamSortException, MaxRecordsLimitException
@@ -1172,7 +1171,6 @@ class Stream(metaclass=abc.ABCMeta):
         )
         for i in range(0, len(windows), workers):
             batch = windows[i : i + workers]
-            batch_start = time.monotonic()
             self.logger.info(
                 f"[{self.name}] dispatching batch {i // workers + 1}: "
                 f"{len(batch)} windows"
@@ -1318,7 +1316,7 @@ class Stream(metaclass=abc.ABCMeta):
 
                 record_count += 1
                 partition_record_count += 1
-            
+
             # if parallelization context is not empty, sync the children with threads
             if use_threads and len(paralellization_context) > 0:
                 self._sync_children_with_threads(paralellization_context)
