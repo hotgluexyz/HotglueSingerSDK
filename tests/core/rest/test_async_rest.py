@@ -118,7 +118,6 @@ def test_get_records_runs_paging_windows_in_parallel(rest_tap):
                 self.max_concurrent_windows = max(
                     self.max_concurrent_windows, self._active_windows
                 )
-            # Hold execution briefly so overlap is observable.
             time.sleep(0.05)
             with self._lock:
                 self._active_windows -= 1
@@ -130,7 +129,6 @@ def test_get_records_runs_paging_windows_in_parallel(rest_tap):
         "B": {"records": [{"id": "b1"}]},
     }
 
-    # Default limit is serial execution.
     records = list(stream.get_records({"base": "ctx"}))
 
     assert records == [{"id": "a1"}, {"id": "b1"}]
@@ -142,3 +140,25 @@ def test_get_records_runs_paging_windows_in_parallel(rest_tap):
 
     assert records == [{"id": "a1"}, {"id": "b1"}]
     assert stream.max_concurrent_windows >= 2
+
+
+def test_get_records_for_window_used_by_parallel_sync(rest_tap):
+    stream = _AsyncTestStream(rest_tap, name="async_stream")
+    stream.parallelization_limit = 2
+    stream.returned_results = {
+        "A": {"records": [{"id": "a1"}]},
+        "B": {"records": [{"id": "b1"}]},
+    }
+
+    records = list(
+        stream._sync_records_parallel(
+            {"base": "ctx"},
+            [{"window": "A"}, {"window": "B"}],
+        )
+    )
+
+    assert records == [{"id": "a1"}, {"id": "b1"}]
+    assert stream.created_contexts == [
+        {"base": "ctx", "window": "A"},
+        {"base": "ctx", "window": "B"},
+    ]

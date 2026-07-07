@@ -2,6 +2,8 @@
 
 import json
 import logging
+import threading
+import time
 from typing import Any, Dict, Iterable, List, Optional, cast
 
 import pendulum
@@ -633,3 +635,104 @@ def test_stream_skips_selected_filters_when_not_present_for_stream(tmp_path):
     assert stream._selected_filters_version is None
     assert stream._selected_filters is None
     assert stream.setup_selected_filters_called is False
+
+
+def test_sync_records_parallel_respects_parallelization_limit(tap: SimpleTestTap):
+    """Parallel window execution should not exceed parallelization_limit."""
+
+    class WindowStream(SimpleTestStream):
+        parallelization_limit = 2
+
+        def __init__(self, tap: Tap):
+            super().__init__(tap)
+            self._active_windows = 0
+            self.max_concurrent_windows = 0
+            self._window_lock = threading.Lock()
+
+        def _get_records_for_window(self, window_context: dict):
+            with self._window_lock:
+                self._active_windows += 1
+                self.max_concurrent_windows = max(
+                    self.max_concurrent_windows, self._active_windows
+                )
+            time.sleep(0.03)
+            with self._window_lock:
+                self._active_windows -= 1
+            yield {
+                "id": window_context["window"],
+                "value": "x",
+                "updatedAt": "2021-01-01T00:00:00Z",
+            }
+
+    stream = WindowStream(tap)
+    windows = [{"window": i} for i in range(5)]
+    records = list(stream._sync_records_parallel(None, windows))
+
+    assert len(records) == 5
+    assert stream.max_concurrent_windows <= stream.parallelization_limit
+
+
+def test_sync_records_parallel_propagates_window_error(tap: SimpleTestTap):
+    """A window error should fail the whole parallel batch."""
+
+    class WindowStream(SimpleTestStream):
+        parallelization_limit = 2
+
+        def _get_records_for_window(self, window_context: dict):
+            if window_context["window"] == "bad":
+                raise RuntimeError("window failed")
+            yield {
+                "id": 1,
+                "value": "x",
+                "updatedAt": "2021-01-01T00:00:00Z",
+            }
+
+    stream = WindowStream(tap)
+    with pytest.raises(RuntimeError, match="window failed"):
+        list(stream._sync_records_parallel(None, [{"window": "bad"}, {"window": "ok"}]))
+
+
+def test_child_stream_can_use_parallel_windows(tap: SimpleTestTap):
+    """Child streams should be eligible for parallel windows."""
+
+    class ChildParallelWindowStream(SimpleTestStream):
+        parent_stream_type = SimpleTestStream
+        parallelization_limit = 2
+
+        def get_paging_windows(self, context: Optional[dict]) -> List[Dict[str, Any]]:
+            return [{"window": 1}, {"window": 2}]
+
+        def get_records(self, context: Optional[dict]) -> Iterable[Dict[str, Any]]:
+            raise AssertionError("serial get_records should not be used")
+
+        def _sync_records_parallel(
+            self,
+            current_context: Optional[dict],
+            windows: List[dict],
+        ) -> Iterable[Dict[str, Any]]:
+            yield {"id": 1, "value": "x", "updatedAt": "2021-01-01T00:00:00Z"}
+
+    stream = ChildParallelWindowStream(tap)
+    stream._write_record_message = lambda record: None
+    stream._write_state_message = lambda: None
+    stream._write_record_count_log = lambda record_count, context: None
+    stream._sync_children = lambda child_context: None
+
+    stream._sync_records()
+
+
+def test_rest_get_records_for_window_streams_results(tap: SimpleTestTap):
+    """REST window collection should yield records incrementally."""
+
+    stream = RestTestStream(tap)
+
+    def request_records(context: Optional[dict]):
+        yield {"id": 1, "value": "a"}
+        raise RuntimeError("boom")
+
+    stream.request_records = request_records
+    iterator = stream._get_records_for_window({})
+
+    assert next(iterator) == {"id": 1, "value": "a"}
+    with pytest.raises(RuntimeError, match="boom"):
+        next(iterator)

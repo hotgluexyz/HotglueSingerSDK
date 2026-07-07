@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 import copy
 import logging
+import threading
 from datetime import datetime
 from typing import Any, Callable, Generator, Generic, Tuple, Type, Iterable, TypeVar, Union
 from urllib.parse import urlparse
@@ -76,6 +77,15 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             self.path = path
         self._http_headers: dict = {}
         self._requests_session = requests.Session()
+        self._sync_costs_lock = threading.Lock()
+        if self.parallelization_limit > 1:
+            pool_size = self.parallelization_limit + 10
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=pool_size,
+                pool_maxsize=pool_size,
+            )
+            self._requests_session.mount("https://", adapter)
+            self._requests_session.mount("http://", adapter)
         self._compiled_jsonpath = None
         self._next_page_token_compiled_jsonpath = None
 
@@ -380,10 +390,11 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             the "cost domains". See `calculate_sync_cost` for details.
         """
         call_costs = self.calculate_sync_cost(request, response, context)
-        self._sync_costs = {
-            k: self._sync_costs.get(k, 0) + call_costs.get(k, 0)
-            for k in call_costs.keys()
-        }
+        with self._sync_costs_lock:
+            self._sync_costs = {
+                k: self._sync_costs.get(k, 0) + call_costs.get(k, 0)
+                for k in call_costs.keys()
+            }
         return self._sync_costs
 
     # Overridable:
@@ -496,6 +507,17 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
 
     # Records iterator
 
+    def _get_records_for_window(self, window_context: dict) -> Iterable[dict]:
+        if type(self).get_records is not RESTStream.get_records:
+            raise NotImplementedError(
+                f"{type(self).__name__} overrides get_records. Override "
+                "_get_records_for_window instead to use parallelization_limit > 1."
+            )
+        for record in self.request_records(window_context):
+            transformed = self.post_process(record, window_context)
+            if transformed is not None:
+                yield transformed
+
     def get_records(self, context: dict | None) -> Iterable[dict[str, Any]]:
         """Return a generator of row-type dictionary objects.
 
@@ -508,16 +530,10 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
             One item per (possibly processed) record in the API.
         """
         context = context or {}
-        paging_windows = self.get_paging_windows(context) or [{}]
-        for paging_window in paging_windows:
+        for paging_window in self.get_paging_windows(context) or [{}]:
             window_context = context.copy()
             window_context.update(paging_window)
-            for record in self.request_records(window_context):
-                transformed_record = self.post_process(record, window_context)
-                if transformed_record is None:
-                    # Record filtered out during post_process()
-                    continue
-                yield transformed_record
+            yield from self._get_records_for_window(window_context)
 
     def parse_response(self, response: requests.Response) -> Iterable[dict]:
         """Parse the response and return an iterator of result rows.

@@ -29,6 +29,7 @@ import pendulum
 import requests
 import singer
 import concurrent.futures
+import queue
 from singer import RecordMessage, Schema, SchemaMessage, StateMessage
 
 from hotglue_singer_sdk.exceptions import InvalidStreamSortException
@@ -1138,7 +1139,64 @@ class Stream(metaclass=abc.ABCMeta):
             for future in concurrent.futures.as_completed(futures):
                 # Yield records
                 future.result()
-    
+
+    def _get_records_for_window(
+        self, window_context: dict
+    ) -> Iterable[Union[dict, Tuple[dict, dict]]]:
+        """Return all records for a single paging window.
+
+        Override in subclasses for more efficient collection (e.g. RESTStream
+        calls request_records directly to avoid a redundant post_process pass).
+        """
+        yield from self.get_records(window_context)
+
+    def _sync_records_parallel(
+        self,
+        current_context: Optional[dict],
+        windows: List[dict],
+    ) -> Iterable[Union[dict, Tuple[dict, dict]]]:
+        """Yield records from all paging windows, dispatching batches in parallel.
+
+        Each batch of up to parallelization_limit windows runs concurrently in a
+        thread pool.
+        """
+        workers = min(max(1, self.parallelization_limit), len(windows))
+        base_context = current_context or {}
+        self.logger.info(
+            f"[{self.name}] parallel sync: {len(windows)} windows, "
+            f"batch_size={workers}, parallelization_limit={self.parallelization_limit}"
+        )
+        for i in range(0, len(windows), workers):
+            batch = windows[i : i + workers]
+            self.logger.info(
+                f"[{self.name}] dispatching batch {i // workers + 1}: "
+                f"{len(batch)} windows"
+            )
+            records_queue: queue.Queue = queue.Queue()
+            complete_marker = object()
+
+            def run_window(window_context: dict) -> None:
+                try:
+                    for record in self._get_records_for_window(window_context):
+                        records_queue.put(record)
+                finally:
+                    records_queue.put(complete_marker)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                futures = [
+                    executor.submit(run_window, dict(base_context, **window))
+                    for window in batch
+                ]
+                remaining = len(futures)
+                while remaining:
+                    item = records_queue.get()
+                    if item is complete_marker:
+                        remaining -= 1
+                    else:
+                        yield item
+                for future in futures:
+                    future.result()
+
     # Private sync methods:
 
     def _sync_records(  # noqa C901  # too complex
@@ -1177,7 +1235,16 @@ class Stream(metaclass=abc.ABCMeta):
             # create a list of child contexts to use for parallelization
             paralellization_context = []
 
-            for record_result in self.get_records(current_context):
+            windows = self.get_paging_windows(current_context)
+            use_parallel_windows = len(windows) > 1 and self.parallelization_limit > 1
+
+            records_iter = (
+                self._sync_records_parallel(current_context, windows)
+                if use_parallel_windows
+                else self.get_records(current_context)
+            )
+
+            for record_result in records_iter:
                 if isinstance(record_result, tuple):
                     # Tuple items should be the record and the child context
                     record, child_context = record_result
