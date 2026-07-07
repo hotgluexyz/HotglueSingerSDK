@@ -107,7 +107,8 @@ class Rest:
             params=params,
             headers=headers,
             data=data,
-            verify=verify
+            verify=verify,
+            timeout=self.timeout
         )
         self.validate_response(response)
         return response
