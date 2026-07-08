@@ -508,11 +508,6 @@ class RESTStream(Stream, Generic[_TToken], metaclass=abc.ABCMeta):
     # Records iterator
 
     def _get_records_for_window(self, window_context: dict) -> Iterable[dict]:
-        if type(self).get_records is not RESTStream.get_records:
-            raise NotImplementedError(
-                f"{type(self).__name__} overrides get_records. Override "
-                "_get_records_for_window instead to use parallelization_limit > 1."
-            )
         for record in self.request_records(window_context):
             transformed = self.post_process(record, window_context)
             if transformed is not None:
