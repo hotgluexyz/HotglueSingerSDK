@@ -97,10 +97,18 @@ def test_target_batching():
 
     buf, _ = tap_sync_test(tap)
 
-    # Derive expected record count from tap output (avoids hardcoding when data changes)
+    # Derive expected record counts from tap output (avoids hardcoding when data changes)
     buf.seek(0)
-    countries_record_count = sum(
-        1 for line in buf if line.strip() and json.loads(line).get("type") == "RECORD"
+    record_messages = []
+    for line in buf:
+        if not line.strip():
+            continue
+        msg = json.loads(line)
+        if msg.get("type") == "RECORD":
+            record_messages.append(msg)
+    record_count = len(record_messages)
+    continents_record_count = sum(
+        1 for msg in record_messages if msg["stream"] == "continents"
     )
     buf.seek(0)
 
@@ -118,7 +126,7 @@ def test_target_batching():
         # `buf` now contains the output of the full tap sync
         target_sync_test(target, buf, finalize=False)
 
-        assert target.num_records_processed == countries_record_count
+        assert target.num_records_processed == record_count
         assert len(target.records_written) == 0  # Drain not yet called
         assert len(target.state_messages_written) == 0  # Drain not yet called
 
@@ -126,24 +134,25 @@ def test_target_batching():
         buf.seek(0)
         target_sync_test(target, buf, finalize=False)
 
-        # The first next record should force a batch drain
-        assert target.num_records_processed == countries_record_count * 2
-        assert len(target.records_written) == countries_record_count + 1
+        # Age check runs on the first STATE after 30+ minutes. That STATE arrives
+        # after continents finishes, so the drain includes the previous pass plus
+        # this pass's continents records.
+        assert target.num_records_processed == record_count * 2
+        assert len(target.records_written) == record_count + continents_record_count
         assert len(target.state_messages_written) == 1
 
     with freeze_time(mocked_jumptotime3):
         buf.seek(0)
         target_sync_test(target, buf, finalize=False)
 
-        # The first next record should force a batch drain
-        assert target.num_records_processed == countries_record_count * 3
-        assert len(target.records_written) == (countries_record_count * 2) + 1
+        assert target.num_records_processed == record_count * 3
+        assert len(target.records_written) == (record_count * 2) + continents_record_count
         assert len(target.state_messages_written) == 2
 
         # Should force a final STATE message
         target_sync_test(target, input=None, finalize=True)
 
-    assert target.num_records_processed == countries_record_count * 3
+    assert target.num_records_processed == record_count * 3
     assert len(target.state_messages_written) == 3
     assert target.state_messages_written[-1] == {
         "bookmarks": {"continents": {}, "countries": {}}
