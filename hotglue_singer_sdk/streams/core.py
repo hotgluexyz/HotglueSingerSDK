@@ -80,7 +80,7 @@ CHILD_REPLICATION_KEY_VALUE = "child_replication_key_value"
 class Stream(metaclass=abc.ABCMeta):
     """Abstract base class for tap streams."""
 
-    STATE_MSG_FREQUENCY = os.environ.get("PARQUET_BATCH_MAX_SIZE", 1000)  # Number of records between state messages
+    STATE_MSG_FREQUENCY = int(os.environ.get("PARQUET_BATCH_MAX_SIZE", 1000))  # Number of records between state messages
     _MAX_RECORDS_LIMIT: Optional[int] = None
 
     # Used for nested stream relationships
