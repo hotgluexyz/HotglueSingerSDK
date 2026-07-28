@@ -218,7 +218,7 @@ class TargetHotglue(Target):
     def get_record_id(self, sink_name, record, relation_fields=None):
         external_id = record.get(self.EXTERNAL_ID_KEY)
         if (
-            self.config["resolve_ids_from_snapshot"]
+            self.config.get("resolve_ids_from_snapshot", True)
             and external_id
             and not record.get(self.GLOBAL_PRIMARY_KEY)
         ):
