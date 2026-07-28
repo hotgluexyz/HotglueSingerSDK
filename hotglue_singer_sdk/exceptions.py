@@ -6,6 +6,10 @@ class ConfigValidationError(Exception):
     """Raised when a user's config settings fail validation."""
 
 
+class CatalogSchemaMismatchError(Exception):
+    """Raised when an input catalog schema does not match the stream's live schema."""
+
+
 class FatalAPIError(Exception):
     """Exception raised when a failed request should not be considered retriable."""
 
