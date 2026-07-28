@@ -78,6 +78,21 @@ class TargetHotglue(Target):
     def SINK_TYPES(self) -> List[ModelSink]:
         raise NotImplementedError
 
+    @classmethod
+    def append_builtin_config(cls, config_jsonschema: dict) -> None:
+        super().append_builtin_config(config_jsonschema)
+        config_jsonschema.setdefault("properties", {}).setdefault(
+            "resolve_ids_from_snapshot",
+            {
+                "type": ["boolean", "null"],
+                "default": True,
+                "description": (
+                    "When false, skip snapshot InputId→RemoteId lookup; "
+                    "id is only sent if present on the record."
+                ),
+            },
+        )
+
     def __init__(
         self,
         config: Optional[Union[dict, PurePath, str, List[Union[PurePath, str]]]] = None,
@@ -202,7 +217,11 @@ class TargetHotglue(Target):
 
     def get_record_id(self, sink_name, record, relation_fields=None):
         external_id = record.get(self.EXTERNAL_ID_KEY)
-        if external_id and not record.get(self.GLOBAL_PRIMARY_KEY):
+        if (
+            self.config.get("resolve_ids_from_snapshot", True)
+            and external_id
+            and not record.get(self.GLOBAL_PRIMARY_KEY)
+        ):
             sink_snapshot_name = f"{sink_name}_{flow_id}"
             sink_snapshot = self.read_snapshot(sink_snapshot_name)
 
