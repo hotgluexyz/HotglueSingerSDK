@@ -176,6 +176,62 @@ class BatchMixedBatchSink(HotglueBatchSink):
         }
 
 
+class BatchNoneResponseSink(HotglueBatchSink):
+    name = "widgets"
+    endpoint = "/widgets"
+    base_url = "https://example.com"
+
+    @property
+    def unified_schema(self):
+        return None
+
+    def make_batch_request(self, records: List[dict]):
+        return None
+
+    def handle_batch_response(self, response) -> dict:
+        return {"state_updates": [{"success": True, "id": "handled-none"}]}
+
+
+class BatchResponseErrorSink(HotglueBatchSink):
+    name = "widgets"
+    endpoint = "/widgets"
+    base_url = "https://example.com"
+
+    @property
+    def unified_schema(self):
+        return None
+
+    def process_batch_record(self, record: dict, index: int) -> dict:
+        if record.get("fail"):
+            raise InvalidPayloadError("invalid record")
+        return record
+
+    def make_batch_request(self, records: List[dict]):
+        return {"records": records}
+
+    def handle_batch_response(self, response) -> dict:
+        raise ValueError("handler failed")
+
+
+class BatchTransformedRequestErrorSink(HotglueBatchSink):
+    name = "widgets"
+    endpoint = "/widgets"
+    base_url = "https://example.com"
+
+    @property
+    def unified_schema(self):
+        return None
+
+    def process_batch_record(self, record: dict, index: int) -> dict:
+        return {"api_id": record["id"]}
+
+    def make_batch_request(self, records: List[dict]):
+        raise InvalidPayloadError("batch request failed")
+
+    def handle_batch_response(self, response) -> dict:
+        return {"state_updates": []}
+
+
 @pytest.fixture(autouse=True)
 def reset_hotglue_base_state():
     HotglueBaseSink.summary_init = False
@@ -425,3 +481,51 @@ def test_batch_mixed_preprocess_error_still_processes_valid_records():
     assert succeeded["success"] is True
     assert sink.latest_state["summary"]["widgets"]["fail"] == 1
     assert sink.latest_state["summary"]["widgets"]["success"] == 1
+
+
+def test_batch_none_response_still_runs_handle_batch_response():
+    target = FakeTarget()
+    sink = _make_sink(target, BatchNoneResponseSink)
+
+    sink.process_batch({"records": [{"id": "ignored"}]})
+
+    bookmarks = sink.latest_state["bookmarks"]["widgets"]
+    assert len(bookmarks) == 1
+    assert bookmarks[0]["success"] is True
+    assert bookmarks[0]["id"] == "handled-none"
+
+
+def test_batch_preprocess_errors_persist_when_handle_batch_response_raises():
+    target = FakeTarget()
+    sink = _make_sink(target, BatchResponseErrorSink)
+
+    with pytest.raises(ValueError, match="handler failed"):
+        sink.process_batch(
+            {
+                "records": [
+                    {"id": "good"},
+                    {"id": "bad", "fail": True, "externalId": "ext-bad"},
+                ]
+            }
+        )
+
+    bookmarks = sink.latest_state["bookmarks"]["widgets"]
+    assert len(bookmarks) == 1
+    failed = bookmarks[0]
+    assert failed["success"] is False
+    assert failed["id"] == "bad"
+    assert failed["externalId"] == "ext-bad"
+
+
+def test_batch_request_error_uses_raw_record_identifiers():
+    target = FakeTarget()
+    sink = _make_sink(target, BatchTransformedRequestErrorSink)
+
+    sink.process_batch({"records": [{"id": "source-1", "externalId": "ext-1"}]})
+
+    bookmarks = sink.latest_state["bookmarks"]["widgets"]
+    assert len(bookmarks) == 1
+    failed = bookmarks[0]
+    assert failed["success"] is False
+    assert failed["id"] == "source-1"
+    assert failed["externalId"] == "ext-1"

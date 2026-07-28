@@ -330,29 +330,37 @@ class HotglueBatchSink(HotglueBaseSink, BatchSink):
             self.init_state()
 
         raw_records = context["records"]
-        records = []
+        staged_records = []
         error_states = []
 
         for index, raw_record in enumerate(raw_records):
             try:
-                records.append(self.process_batch_record(raw_record, index))
+                staged_records.append(
+                    (raw_record, self.process_batch_record(raw_record, index))
+                )
             except Exception as e:
                 self.logger.exception("Batch record preprocess error %s", e)
                 error_states.append(self._build_record_error_state(e, record=raw_record))
 
         response = None
-        if records:
+        batch_request_failed = False
+        if staged_records:
+            records = [record for _, record in staged_records]
             try:
                 response = self.make_batch_request(records)
             except Exception as e:
+                batch_request_failed = True
                 self.logger.exception("Batch request error %s", e)
-                for record in records:
-                    error_states.append(self._build_record_error_state(e, record=record))
+                for raw_record, _ in staged_records:
+                    error_states.append(
+                        self._build_record_error_state(e, record=raw_record)
+                    )
 
-        if response is not None:
-            result = self.handle_batch_response(response)
-            for state in result.get("state_updates", []):
+        try:
+            if staged_records and not batch_request_failed:
+                result = self.handle_batch_response(response)
+                for state in result.get("state_updates", []):
+                    self.update_state(state)
+        finally:
+            for state in error_states:
                 self.update_state(state)
-
-        for state in error_states:
-            self.update_state(state)
