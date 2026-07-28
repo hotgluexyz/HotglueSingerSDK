@@ -1395,13 +1395,20 @@ class Stream(metaclass=abc.ABCMeta):
     def _validate_catalog_schema(self, catalog_entry: CatalogEntry) -> None:
         """Fail if catalog schema properties diverge from the stream's live schema.
 
-        This catches stale catalogs after config-driven schema changes 
+        Selection-only catalog stubs (empty ``properties``) are skipped — stream
+        selection still comes from metadata/mask (empty breadcrumb). Select-all when
+        there is no input catalog is handled in :attr:`metadata`, not here.
+
+        This catches stale catalogs after config-driven schema changes
         (e.g. updating a Google Analytics ``reports_list`` without re-running discovery).
         """
         catalog_schema = (
             catalog_entry.schema.to_dict() if catalog_entry.schema is not None else {}
         )
         catalog_props = set((catalog_schema.get("properties") or {}))
+        if not catalog_props:
+            return
+
         live_props = set((self.schema.get("properties") or {}))
         if catalog_props == live_props:
             return
