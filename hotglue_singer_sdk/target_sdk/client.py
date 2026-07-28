@@ -183,6 +183,7 @@ class HotglueBaseSink(Rest):
         record: Optional[dict] = None,
         external_id: Optional[str] = None,
         record_hash: Optional[str] = None,
+        identifiers: Optional[dict] = None,
     ) -> dict:
         """Build a complete failed-record state dict from an exception."""
         state = {
@@ -191,6 +192,10 @@ class HotglueBaseSink(Rest):
         }
         state.update(self._get_error_classification_metadata(error))
         state.update(self._record_identifiers(record))
+        if identifiers:
+            for key, value in identifiers.items():
+                if value not in (None, ""):
+                    state[key] = value
         if record_hash:
             state["hash"] = record_hash
         elif record:
@@ -334,13 +339,19 @@ class HotglueBatchSink(HotglueBaseSink, BatchSink):
         error_states = []
 
         for index, raw_record in enumerate(raw_records):
+            record_identifiers = self._record_identifiers(raw_record)
             try:
-                staged_records.append(
-                    (raw_record, self.process_batch_record(raw_record, index))
-                )
+                normalized = self.process_batch_record(raw_record, index)
+                staged_records.append((record_identifiers, normalized))
             except Exception as e:
                 self.logger.exception("Batch record preprocess error %s", e)
-                error_states.append(self._build_record_error_state(e, record=raw_record))
+                error_states.append(
+                    self._build_record_error_state(
+                        e,
+                        record=raw_record,
+                        identifiers=record_identifiers,
+                    )
+                )
 
         response = None
         batch_request_failed = False
@@ -351,9 +362,13 @@ class HotglueBatchSink(HotglueBaseSink, BatchSink):
             except Exception as e:
                 batch_request_failed = True
                 self.logger.exception("Batch request error %s", e)
-                for raw_record, _ in staged_records:
+                for record_identifiers, normalized in staged_records:
                     error_states.append(
-                        self._build_record_error_state(e, record=raw_record)
+                        self._build_record_error_state(
+                            e,
+                            record=normalized,
+                            identifiers=record_identifiers,
+                        )
                     )
 
         try:

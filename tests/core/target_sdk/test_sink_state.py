@@ -232,6 +232,28 @@ class BatchTransformedRequestErrorSink(HotglueBatchSink):
         return {"state_updates": []}
 
 
+class BatchInPlaceMutationRequestErrorSink(HotglueBatchSink):
+    name = "widgets"
+    endpoint = "/widgets"
+    base_url = "https://example.com"
+
+    @property
+    def unified_schema(self):
+        return None
+
+    def process_batch_record(self, record: dict, index: int) -> dict:
+        record.pop("id", None)
+        record.pop("externalId", None)
+        record["api_id"] = "mutated"
+        return record
+
+    def make_batch_request(self, records: List[dict]):
+        raise InvalidPayloadError("batch request failed")
+
+    def handle_batch_response(self, response) -> dict:
+        return {"state_updates": []}
+
+
 @pytest.fixture(autouse=True)
 def reset_hotglue_base_state():
     HotglueBaseSink.summary_init = False
@@ -520,6 +542,20 @@ def test_batch_preprocess_errors_persist_when_handle_batch_response_raises():
 def test_batch_request_error_uses_raw_record_identifiers():
     target = FakeTarget()
     sink = _make_sink(target, BatchTransformedRequestErrorSink)
+
+    sink.process_batch({"records": [{"id": "source-1", "externalId": "ext-1"}]})
+
+    bookmarks = sink.latest_state["bookmarks"]["widgets"]
+    assert len(bookmarks) == 1
+    failed = bookmarks[0]
+    assert failed["success"] is False
+    assert failed["id"] == "source-1"
+    assert failed["externalId"] == "ext-1"
+
+
+def test_batch_request_error_preserves_identifiers_after_inplace_preprocess():
+    target = FakeTarget()
+    sink = _make_sink(target, BatchInPlaceMutationRequestErrorSink)
 
     sink.process_batch({"records": [{"id": "source-1", "externalId": "ext-1"}]})
 
