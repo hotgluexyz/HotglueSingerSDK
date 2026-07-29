@@ -64,3 +64,41 @@ This will output the new access token as JSON:
 ```
 
 **Note:** The `--access-token` flag requires a config file path. It will not work with `--config ENV` or when omitting the config.
+
+## Stream Schema Resolution
+
+During a sync the tap is handed a catalog which already contains each stream's schema, recorded when discovery last ran. The SDK serves that schema instead of resolving it again, so streams which detect their schema from the API do not re-detect it on every sync — including streams the user has deselected.
+
+`Stream.schema` resolves once per stream, in this order:
+
+1. A static schema, if the stream was given one (the `schema=` argument or `schema_filepath`).
+2. The schema catalogued for the stream in the tap's input catalog. An entry whose schema has no properties is skipped, since it cannot be used as a schema.
+3. `get_schema()`, for streams which detect their schema at runtime.
+
+### Implementing Dynamic Schemas
+
+Streams whose schema is only known at runtime should override `get_schema()` rather than the `schema` property:
+
+```python
+class MyStream(RESTStream):
+    name = "my_stream"
+
+    def get_schema(self) -> dict:
+        """Detect the schema for this stream."""
+        records = self.request_records({})
+        return infer_schema(records)
+```
+
+The SDK calls this only when the catalog holds nothing usable for the stream — a discovery run, or a stream which is new since the last discovery. The result is cached for the life of the stream.
+
+### Opting Out
+
+Set `use_input_catalog` to `false` in the tap config to ignore the catalogued schema and always resolve it from the stream:
+
+```json
+{
+  "use_input_catalog": false
+}
+```
+
+**Note:** A stream which overrides the `schema` property directly bypasses all of the above — the catalog is never consulted and `get_schema()` is never called. Such taps keep working unchanged, but to pick up catalog reuse they must remove the `schema` override and expose their detection logic as `get_schema()` instead.

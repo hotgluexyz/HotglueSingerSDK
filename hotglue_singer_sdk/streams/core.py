@@ -124,9 +124,9 @@ class Stream(metaclass=abc.ABCMeta):
         self._primary_keys: Optional[List[str]] = None
         self._state_partitioning_keys: Optional[List[str]] = None
         self._schema_filepath: Optional[Path] = None
+        self._schema: Optional[dict] = None
         self._metadata: Optional[MetadataMapping] = None
         self._mask: Optional[SelectionMask] = None
-        self._schema: dict
         self.child_streams: List[Stream] = []
         self._minimum_start_time: Optional[datetime.datetime] = None
         self._selected_filters_version: Optional[str] = None
@@ -518,13 +518,43 @@ class Stream(metaclass=abc.ABCMeta):
         """
         return self._schema_filepath
 
+    def get_schema(self) -> Optional[dict]:
+        """Get the schema for this stream.
+
+        Streams whose schema is only known at runtime (e.g. detected by sampling the
+        API) should override this method rather than the `schema` property, so the
+        SDK can serve the catalogued schema instead when the tap is given a catalog.
+
+        Returns:
+            JSON Schema dictionary for this stream, or `None` if the stream does not
+            define one.
+        """
+        return None
+
     @property
     def schema(self) -> dict:
         """Get schema.
 
+        A schema catalogued in the tap's input catalog is used as-is, so streams
+        which detect their schema at runtime do not detect it again on every sync.
+
         Returns:
             JSON Schema dictionary for this stream.
         """
+        if self._schema is None:
+            catalog = (
+                self._tap.input_catalog
+                if self.config.get("use_input_catalog", True)
+                else None
+            )
+            entry = catalog.get_stream(self.tap_stream_id) if catalog else None
+            catalogued = entry.schema.to_dict() if entry and entry.schema else None
+            if not (catalogued and catalogued.get("properties")):
+                # An entry without properties is not usable as a schema.
+                catalogued = None
+
+            self._schema = catalogued or self.get_schema() or {}
+
         return self._schema
 
     @property
