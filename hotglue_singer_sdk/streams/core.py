@@ -33,7 +33,7 @@ import queue
 from singer import RecordMessage, Schema, SchemaMessage, StateMessage
 
 from hotglue_singer_sdk.exceptions import (
-    CatalogSchemaMismatchError,
+    CatalogKeyPropertiesMismatchError,
     InvalidStreamSortException,
 )
 from hotglue_singer_sdk.helpers._catalog import pop_deselected_record_properties
@@ -1379,8 +1379,8 @@ class Stream(metaclass=abc.ABCMeta):
                 replication keys, as well as selection metadata.
 
         Raises:
-            CatalogSchemaMismatchError: If the catalog entry schema properties do not
-                match the stream's live schema (e.g. stale catalog after config change).
+            CatalogKeyPropertiesMismatchError: If catalog key_properties do not match the
+                stream's primary keys (e.g. stale catalog after a config change).
         """
         self._tap_input_catalog = catalog
 
@@ -1393,35 +1393,32 @@ class Stream(metaclass=abc.ABCMeta):
                 self.forced_replication_method = catalog_entry.replication_method
 
     def _validate_catalog_schema(self, catalog_entry: CatalogEntry) -> None:
-        """Fail if catalog schema properties diverge from the stream's live schema.
+        """Fail if catalog key_properties diverge from the stream's live primary keys.
 
-        Selection-only catalog stubs (empty ``properties``) are skipped — stream
-        selection still comes from metadata/mask (empty breadcrumb). Select-all when
-        there is no input catalog is handled in :attr:`metadata`, not here.
-
-        This catches stale catalogs after config-driven schema changes
-        (e.g. updating a Google Analytics ``reports_list`` without re-running discovery).
+        Extra non-key schema fields (e.g. custom fields) are ignored. This catches
+        stale catalogs after config-driven key changes (e.g. updating a Google
+        Analytics ``reports_list`` without re-running discovery).
         """
-        catalog_schema = (
-            catalog_entry.schema.to_dict() if catalog_entry.schema is not None else {}
-        )
-        catalog_props = set((catalog_schema.get("properties") or {}))
-        if not catalog_props:
+        catalog_keys = list(catalog_entry.key_properties or [])
+        if not catalog_keys:
             return
 
-        live_props = set((self.schema.get("properties") or {}))
-        if catalog_props == live_props:
-            return
+        live_keys = list(self.primary_keys or [])
+        if live_keys and set(live_keys) != set(catalog_keys):
+            raise CatalogKeyPropertiesMismatchError(
+                f"Stream '{self.name}' catalog key_properties {catalog_keys} "
+                f"do not match stream primary_keys {live_keys}. "
+                f"Re-run discovery after changing the tap config (or update the catalog)."
+            )
 
-        only_in_catalog = sorted(catalog_props - live_props)
-        only_in_stream = sorted(live_props - catalog_props)
-        raise CatalogSchemaMismatchError(
-            f"Stream '{self.name}' catalog schema does not match the stream schema "
-            f"from the current tap config. "
-            f"Properties only in catalog: {only_in_catalog}. "
-            f"Properties only in stream schema: {only_in_stream}. "
-            f"Re-run discovery after changing the tap config (or update the catalog)."
-        )
+        live_props = self.schema.get("properties") or {}
+        missing = [key for key in catalog_keys if key not in live_props]
+        if missing:
+            raise CatalogKeyPropertiesMismatchError(
+                f"Stream '{self.name}' catalog key_properties not in stream schema: "
+                f"{missing}. "
+                f"Re-run discovery after changing the tap config (or update the catalog)."
+            )
 
     def _get_state_partition_context(self, context: Optional[dict]) -> Optional[Dict]:
         """Override state handling if Stream.state_partitioning_keys is specified.

@@ -14,7 +14,7 @@ from singer import RecordMessage
 from hotglue_singer_sdk.helpers._classproperty import classproperty
 from hotglue_singer_sdk.helpers._singer import Catalog, MetadataMapping
 from hotglue_singer_sdk.helpers.jsonpath import _compile_jsonpath
-from hotglue_singer_sdk.exceptions import CatalogSchemaMismatchError
+from hotglue_singer_sdk.exceptions import CatalogKeyPropertiesMismatchError
 from hotglue_singer_sdk.streams.core import (
     REPLICATION_FULL_TABLE,
     REPLICATION_INCREMENTAL,
@@ -178,18 +178,11 @@ def test_stream_apply_catalog(tap: SimpleTestTap, stream: SimpleTestStream):
     assert stream.forced_replication_method == REPLICATION_FULL_TABLE
 
 
-def test_apply_catalog_raises_on_schema_mismatch(
+def test_apply_catalog_raises_on_key_properties_not_in_schema(
     tap: SimpleTestTap, stream: SimpleTestStream
 ):
-    """Stale catalog properties vs live stream schema should fail fast."""
-    stale_schema = PropertiesList(
-        Property("date", StringType, required=True),
-        Property("source", StringType, required=True),
-        Property("medium", StringType, required=True),
-        Property("sessions", IntegerType),
-    ).to_dict()
-
-    with pytest.raises(CatalogSchemaMismatchError) as exc_info:
+    """Catalog key_properties absent from the live schema should fail fast."""
+    with pytest.raises(CatalogKeyPropertiesMismatchError) as exc_info:
         stream.apply_catalog(
             catalog=Catalog.from_dict(
                 {
@@ -199,7 +192,7 @@ def test_apply_catalog_raises_on_schema_mismatch(
                             "metadata": MetadataMapping(),
                             "key_properties": ["date", "source", "medium"],
                             "stream": stream.name,
-                            "schema": stale_schema,
+                            "schema": stream.schema,
                             "replication_method": REPLICATION_INCREMENTAL,
                             "replication_key": "date",
                         }
@@ -211,19 +204,17 @@ def test_apply_catalog_raises_on_schema_mismatch(
     message = str(exc_info.value)
     assert "source" in message
     assert "medium" in message
-    assert "id" in message
-    assert "value" in message
     assert stream.primary_keys == []
     assert stream.replication_key == "updatedAt"
 
 
-def test_apply_catalog_allows_matching_schema_properties(
+def test_apply_catalog_allows_extra_schema_properties(
     tap: SimpleTestTap, stream: SimpleTestStream
 ):
-    """Catalog with the same property names as the live schema is accepted."""
-    matching_schema = PropertiesList(
+    """Non-key schema drift (e.g. custom fields) must not fail when PKs match."""
+    # Catalog omits non-key field "value"; live schema still has it.
+    catalog_schema = PropertiesList(
         Property("id", IntegerType, required=True),
-        Property("value", StringType, required=True),
         Property("updatedAt", DateTimeType, required=True),
     ).to_dict()
 
@@ -236,7 +227,7 @@ def test_apply_catalog_allows_matching_schema_properties(
                         "metadata": MetadataMapping(),
                         "key_properties": ["id"],
                         "stream": stream.name,
-                        "schema": matching_schema,
+                        "schema": catalog_schema,
                         "replication_method": REPLICATION_INCREMENTAL,
                         "replication_key": "updatedAt",
                     }
@@ -250,11 +241,7 @@ def test_apply_catalog_allows_matching_schema_properties(
 
 
 def test_apply_catalog_raises_on_ga_reports_list_override_mismatch():
-    """Stale catalog after a reports_list override must fail before sync.
-
-    Simulates traffic_sources discovered with the old dimensions/metrics, then synced
-    with an updated override_source_config reports_list (new dimensions/metrics).
-    """
+    """Stale catalog key_properties after a reports_list override must fail before sync."""
 
     def schema_from_report(report: dict) -> dict:
         props = [Property(dim, StringType, required=True) for dim in report["dimensions"]]
@@ -269,19 +256,11 @@ def test_apply_catalog_raises_on_ga_reports_list_override_mismatch():
         )
         return PropertiesList(*props).to_dict()
 
-    # Catalog discovered with the old reports_list (pre-override).
     stale_report = {
         "name": "traffic_sources",
         "dimensions": ["date", "source", "medium", "sourcePlatform"],
-        "metrics": [
-            "activeUsers",
-            "sessions",
-            "sessionsPerUser",
-            "bounceRate",
-            "engagementRate",
-        ],
+        "metrics": ["sessions"],
     }
-    # Live config after override_source_config (new reports_list).
     live_report = {
         "name": "traffic_sources",
         "dimensions": [
@@ -292,12 +271,7 @@ def test_apply_catalog_raises_on_ga_reports_list_override_mismatch():
             "sessionCampaignName",
             "newVsReturning",
         ],
-        "metrics": [
-            "sessions",
-            "engagedSessions",
-            "transactions",
-            "purchaseRevenue",
-        ],
+        "metrics": ["sessions", "engagedSessions"],
     }
 
     class ReportStream(Stream):
@@ -321,6 +295,7 @@ def test_apply_catalog_raises_on_ga_reports_list_override_mismatch():
 
     tap = ReportTap(config={}, parse_env_config=False)
     stream = cast(ReportStream, tap.load_streams()[0])
+    live_keys = list(stream.primary_keys)
 
     stale_catalog = Catalog.from_dict(
         {
@@ -344,35 +319,14 @@ def test_apply_catalog_raises_on_ga_reports_list_override_mismatch():
         }
     )
 
-    with pytest.raises(CatalogSchemaMismatchError) as exc_info:
+    with pytest.raises(CatalogKeyPropertiesMismatchError) as exc_info:
         stream.apply_catalog(catalog=stale_catalog)
 
     message = str(exc_info.value)
     assert "traffic_sources" in message
-    # Stale catalog dimensions/metrics no longer in live reports_list.
-    for prop in ("source", "medium", "sourcePlatform", "activeUsers", "bounceRate"):
-        assert prop in message
-    # Live reports_list fields missing from the stale catalog.
-    for prop in (
-        "sessionDefaultChannelGroup",
-        "sessionSource",
-        "sessionMedium",
-        "sessionCampaignName",
-        "newVsReturning",
-        "engagedSessions",
-        "purchaseRevenue",
-    ):
-        assert prop in message
-    # Catalog was rejected before overwriting stream keys with the stale entry.
-    assert stream.primary_keys == [
-        "date",
-        "sessionDefaultChannelGroup",
-        "sessionSource",
-        "sessionMedium",
-        "sessionCampaignName",
-        "newVsReturning",
-        "property_id",
-    ]
+    for key in ("source", "medium", "sourcePlatform", "sessionSource", "newVsReturning"):
+        assert key in message
+    assert stream.primary_keys == live_keys
 
 
 def test_stream_respects_max_records_limit(monkeypatch):

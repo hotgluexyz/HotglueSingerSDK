@@ -6,8 +6,8 @@ class ConfigValidationError(Exception):
     """Raised when a user's config settings fail validation."""
 
 
-class CatalogSchemaMismatchError(Exception):
-    """Raised when an input catalog schema does not match the stream's live schema."""
+class CatalogKeyPropertiesMismatchError(Exception):
+    """Raised when catalog key_properties do not match the stream's primary keys."""
 
 
 class FatalAPIError(Exception):
