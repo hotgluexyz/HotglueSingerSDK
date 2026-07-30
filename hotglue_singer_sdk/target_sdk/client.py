@@ -306,7 +306,7 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         if state_updates.pop("existing", False):
             is_duplicate = True
 
-        if state_updates:
+        if state_updates and isinstance(state_updates, dict):
             state = dict(state, **state_updates)
 
         self.update_state(state, is_duplicate=is_duplicate, record=record)
