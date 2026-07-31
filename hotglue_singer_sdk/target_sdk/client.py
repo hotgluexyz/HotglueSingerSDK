@@ -153,6 +153,60 @@ class HotglueBaseSink(Rest):
         if self.authenticator and isinstance(self.authenticator, Authenticator):
             self.latest_state.update(self.authenticator.state)
 
+    def build_record_hash(self, record: dict) -> str:
+        return hashlib.sha256(json.dumps(record, cls=HGJSONEncoder).encode()).hexdigest()
+
+    def _get_error_classification_metadata(self, error: Exception) -> dict:
+        if isinstance(error, InvalidCredentialsError):
+            return {"hg_error_class": InvalidCredentialsError.__name__}
+        if isinstance(error, InvalidPayloadError):
+            return {"hg_error_class": InvalidPayloadError.__name__}
+        return {}
+
+    def _record_identifiers(self, record: Optional[dict]) -> dict:
+        """Extract id and externalId fields from a record for state bookmarks."""
+        if not record:
+            return {}
+        identifiers = {}
+        if record.get("id") not in (None, ""):
+            identifiers["id"] = str(record["id"])
+        external_id_key = self._target.EXTERNAL_ID_KEY
+        external_id = record.get(external_id_key) or record.get(external_id_key.lower())
+        if external_id not in (None, ""):
+            identifiers["externalId"] = str(external_id)
+        return identifiers
+
+    def _build_record_error_state(
+        self,
+        error: Exception,
+        *,
+        record: Optional[dict] = None,
+        external_id: Optional[str] = None,
+        record_hash: Optional[str] = None,
+        identifiers: Optional[dict] = None,
+    ) -> dict:
+        """Build a complete failed-record state dict from an exception."""
+        state = {
+            "success": False,
+            "error": str(error),
+        }
+        state.update(self._get_error_classification_metadata(error))
+        state.update(self._record_identifiers(record))
+        if identifiers:
+            for key, value in identifiers.items():
+                if value not in (None, ""):
+                    state[key] = value
+        if record_hash:
+            state["hash"] = record_hash
+        elif record:
+            try:
+                state["hash"] = self.build_record_hash(record)
+            except Exception:
+                pass
+        if external_id and "externalId" not in state:
+            state["externalId"] = str(external_id)
+        return state
+
 
 class HotglueSink(HotglueBaseSink, RecordSink):
     """Hotglue target sink class."""
@@ -161,9 +215,6 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         id = response.json().get("id")
         return id, response.ok, dict()
 
-    def build_record_hash(self, record: dict):
-        return hashlib.sha256(json.dumps(record, cls=HGJSONEncoder).encode()).hexdigest()
-    
     def get_existing_state(self, hash: str):
         """
         Returns the existing state if it exists
@@ -178,14 +229,6 @@ class HotglueSink(HotglueBaseSink, RecordSink):
     def preprocess_record(self, record: dict, context: dict) -> dict:
         raise NotImplementedError()
 
-
-    def _get_error_classification_metadata(self, error: Exception) -> dict:
-        if isinstance(error, (InvalidCredentialsError)):
-            return {"hg_error_class": InvalidCredentialsError.__name__}
-        elif isinstance(error, (InvalidPayloadError)):
-            return {"hg_error_class": InvalidPayloadError.__name__}
-        return {}
-
     def process_record(self, record: dict, context: dict) -> None:
         """Process the record."""
         if not self.latest_state:
@@ -193,8 +236,6 @@ class HotglueSink(HotglueBaseSink, RecordSink):
 
         id = None
         external_id = None
-        success = None
-        state = {}
         state_updates = dict()
         external_id_key = self._target.EXTERNAL_ID_KEY
 
@@ -207,45 +248,52 @@ class HotglueSink(HotglueBaseSink, RecordSink):
             if record and external_id:
                 record[self._target.EXTERNAL_ID_KEY] = external_id
         except Exception as e:
-            success = False
             self.logger.exception(f"Preprocess record error {str(e)}")
-            state_updates['error'] = str(e)
-            state_updates.update(self._get_error_classification_metadata(e))
+            self.update_state(
+                self._build_record_error_state(
+                    e,
+                    record=record,
+                    external_id=external_id,
+                ),
+                record=record,
+            )
+            return
 
-        if success is not False:
+        record_hash = self.build_record_hash(record)
 
-            hash = self.build_record_hash(record)
+        if record_hash in self.processed_hashes:
+            self.logger.info(f"Record of type {self.name} already exists with hash: {record_hash}")
+            return
 
-            if hash in self.processed_hashes:
-                self.logger.info(f"Record of type {self.name} already exists with hash: {hash}")
-                return
+        existing_state = self.get_existing_state(record_hash)
 
-            existing_state =  self.get_existing_state(hash)
+        if self.name in self.allows_externalid:
+            external_id = record.get(external_id_key) or record.get(external_id_key.lower())
+        else:
+            external_id = record.pop(external_id_key, None) or record.pop(external_id_key.lower(), None)
 
-            if self.name in self.allows_externalid:
-                external_id = record.get(external_id_key) or record.get(external_id_key.lower())
-            else:
-                external_id = record.pop(external_id_key, None) or record.pop(external_id_key.lower(), None)
+        if existing_state:
+            return self.update_state(existing_state, is_duplicate=True, record=record)
 
-            if existing_state:
-                return self.update_state(existing_state, is_duplicate=True, record=record)
-
-            state["hash"] = hash
-
-
-            try:
-                id, success, state_updates = self.upsert_record(record, context)
-            except Exception as e:
-                self.logger.exception(f"Upsert record error {str(e)}")
-                state_updates['error'] = str(e)
-                success = False
-                state_updates.update(self._get_error_classification_metadata(e))
-
+        try:
+            id, success, state_updates = self.upsert_record(record, context)
+        except Exception as e:
+            self.logger.exception(f"Upsert record error {str(e)}")
+            self.update_state(
+                self._build_record_error_state(
+                    e,
+                    record=record,
+                    external_id=external_id,
+                    record_hash=record_hash,
+                ),
+                record=record,
+            )
+            return
 
         if success:
             self.logger.info(f"{self.name} processed id: {id}")
 
-        state["success"] = success
+        state = {"success": success, "hash": record_hash}
 
         if id:
             state["id"] = id
@@ -287,12 +335,47 @@ class HotglueBatchSink(HotglueBaseSink, BatchSink):
             self.init_state()
 
         raw_records = context["records"]
+        staged_records = []
+        error_states = []
 
-        records = list(map(lambda e: self.process_batch_record(e[1], e[0]), enumerate(raw_records)))
+        for index, raw_record in enumerate(raw_records):
+            record_identifiers = self._record_identifiers(raw_record)
+            try:
+                normalized = self.process_batch_record(raw_record, index)
+                staged_records.append((record_identifiers, normalized))
+            except Exception as e:
+                self.logger.exception("Batch record preprocess error %s", e)
+                error_states.append(
+                    self._build_record_error_state(
+                        e,
+                        record=raw_record,
+                        identifiers=record_identifiers,
+                    )
+                )
 
-        response = self.make_batch_request(records)
+        response = None
+        batch_request_failed = False
+        if staged_records:
+            records = [record for _, record in staged_records]
+            try:
+                response = self.make_batch_request(records)
+            except Exception as e:
+                batch_request_failed = True
+                self.logger.exception("Batch request error %s", e)
+                for record_identifiers, normalized in staged_records:
+                    error_states.append(
+                        self._build_record_error_state(
+                            e,
+                            record=normalized,
+                            identifiers=record_identifiers,
+                        )
+                    )
 
-        result = self.handle_batch_response(response)
-
-        for state in result.get("state_updates", list()):
-            self.update_state(state)
+        try:
+            if staged_records and not batch_request_failed:
+                result = self.handle_batch_response(response)
+                for state in result.get("state_updates", []):
+                    self.update_state(state)
+        finally:
+            for state in error_states:
+                self.update_state(state)
