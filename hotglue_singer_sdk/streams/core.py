@@ -64,6 +64,7 @@ from hotglue_singer_sdk.mapper import RemoveRecordTransform, SameRecordTransform
 from hotglue_singer_sdk.plugin_base import PluginBase as TapBaseClass
 import isodate
 from datetime import timezone
+import os
 
 # Replication methods
 REPLICATION_FULL_TABLE = "FULL_TABLE"
@@ -79,7 +80,7 @@ CHILD_REPLICATION_KEY_VALUE = "child_replication_key_value"
 class Stream(metaclass=abc.ABCMeta):
     """Abstract base class for tap streams."""
 
-    STATE_MSG_FREQUENCY = 10000  # Number of records between state messages
+    STATE_MSG_FREQUENCY = int(os.environ.get("PARQUET_BATCH_MAX_SIZE", 1000))  # Number of records between state messages
     _MAX_RECORDS_LIMIT: Optional[int] = None
 
     # Used for nested stream relationships
@@ -871,9 +872,28 @@ class Stream(metaclass=abc.ABCMeta):
 
     # Private message authoring methods:
 
+    def _emits_resumable_interim_state(self) -> bool:
+        """Whether interim STATE messages should look like finalized bookmarks.
+
+        Only sorted leaf streams are safe to resume from mid-sync STATE.
+        """
+        return self.is_sorted and not self.child_streams
+
     def _write_state_message(self) -> None:
-        """Write out a STATE message with the latest state."""
-        singer.write_message(StateMessage(value=self.tap_state))
+        """Write out a STATE message with the latest state.
+
+        For sorted streams with no children, emit a finalized copy so mid-sync
+        STATE is resumable (no progress markers / interim keys).
+        """
+        state_to_emit = self.tap_state
+        if self._emits_resumable_interim_state():
+            state_to_emit = copy.deepcopy(self.tap_state)
+            stream_state = state_to_emit.get("bookmarks", {}).get(self.name)
+            if stream_state is not None:
+                finalize_state_progress_markers(stream_state)
+                for partition_state in stream_state.get("partitions", []):
+                    finalize_state_progress_markers(partition_state)
+        singer.write_message(StateMessage(value=state_to_emit))
 
     def _generate_schema_messages(self) -> Generator[SchemaMessage, None, None]:
         """Generate schema messages from stream maps.
@@ -1272,8 +1292,6 @@ class Stream(metaclass=abc.ABCMeta):
                     else:
                         self._sync_children(child_context)
                 if selected:
-                    if (record_count - 1) % self.STATE_MSG_FREQUENCY == 0:
-                        self._write_state_message()
                     self._write_record_message(record)
                     try:
                         self._increment_stream_state(record, context=current_context)
@@ -1307,6 +1325,9 @@ class Stream(metaclass=abc.ABCMeta):
 
                 record_count += 1
                 partition_record_count += 1
+
+                if selected and record_count % self.STATE_MSG_FREQUENCY == 0:
+                    self._write_state_message()
 
                 if self._check_max_record_limit(record_count):
                     return
