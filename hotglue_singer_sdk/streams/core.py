@@ -885,15 +885,7 @@ class Stream(metaclass=abc.ABCMeta):
         For sorted streams with no children, emit a finalized copy so mid-sync
         STATE is resumable (no progress markers / interim keys).
         """
-        state_to_emit = self.tap_state
-        if self._emits_resumable_interim_state():
-            state_to_emit = copy.deepcopy(self.tap_state)
-            stream_state = state_to_emit.get("bookmarks", {}).get(self.name)
-            if stream_state is not None:
-                finalize_state_progress_markers(stream_state)
-                for partition_state in stream_state.get("partitions", []):
-                    finalize_state_progress_markers(partition_state)
-        singer.write_message(StateMessage(value=state_to_emit))
+        singer.write_message(StateMessage(value=self.tap_state))
 
     def _generate_schema_messages(self) -> Generator[SchemaMessage, None, None]:
         """Generate schema messages from stream maps.
