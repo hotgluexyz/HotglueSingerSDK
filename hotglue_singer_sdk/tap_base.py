@@ -10,6 +10,7 @@ from pathlib import Path, PurePath
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union, Set, cast
 
 import click
+import os
 
 from hotglue_singer_sdk.cli import common_options
 from hotglue_singer_sdk.exceptions import MaxRecordsLimitException
@@ -94,6 +95,8 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             self.register_streams_from_catalog(catalog)
         if state is not None:
             self.register_state_from_file(state)
+
+        self.completed_streams = []
 
     def register_streams_from_catalog(self, catalog):
         if isinstance(catalog, Catalog):
@@ -493,6 +496,14 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         """Prepare stream state and replication methods before a tap run."""
         self._reset_state_progress_markers()
         self._set_compatible_replication_methods()
+    
+    def register_completed_streams(self, state: Any) -> None:
+        """Register completed streams from the state."""
+        if os.environ.get("RESUME_FROM_INCREMENTAL_STATE", "false") != "true":
+            return
+        for stream_name, stream_state in state.get("bookmarks", {}).items():
+            if "starting_replication_value" in stream_state:
+                self.completed_streams.append(stream_name)
 
     def run_sync(self, catalog: Any = None, state: Any = None) -> None:
         """Run the tap's sync operation.
@@ -502,6 +513,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         """
         self.register_streams_from_catalog(catalog)
         self.register_state_from_file(state)
+        self.register_completed_streams(state)
         self._emit_estimated_record_totals_snapshot()
         self.sync_all()
 

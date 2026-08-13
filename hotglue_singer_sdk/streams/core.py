@@ -1334,6 +1334,15 @@ class Stream(metaclass=abc.ABCMeta):
         self._write_record_count_log(record_count=record_count, context=context)
         # Reset interim bookmarks before emitting final STATE message:
         self._write_state_message()
+    
+    def should_recovery_sync(self) -> bool:
+        """Determine if a recovery sync should be performed for this stream.
+        """
+        check_streams = [self.name] + [child_stream.name for child_stream in self.child_streams] + [parent_stream.name for parent_stream in self.parent_stream_type]
+        # check state to see if any of the streams have been synced on previous run
+        if all(stream in self.tap.completed_streams for stream in check_streams):
+            return False
+        return True
 
     # Public methods ("final", not recommended to be overridden)
 
@@ -1358,6 +1367,10 @@ class Stream(metaclass=abc.ABCMeta):
 
         # Send a SCHEMA message to the downstream target:
         if self.selected:
+            if os.environ.get("RESUME_FROM_INCREMENTAL_STATE", "false") == "true":
+                if not self.should_recovery_sync():
+                    self.logger.info(f"Stream '{self.name}' was already synced on previous run, skipping sync.")
+                    return
             self._write_schema_message()
         # Sync the records themselves:
         self._sync_records(context)
