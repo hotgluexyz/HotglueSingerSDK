@@ -497,11 +497,18 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         self._reset_state_progress_markers()
         self._set_compatible_replication_methods()
     
-    def register_completed_streams(self) -> None:
+    def register_completed_streams(self, state) -> None:
         """Register completed streams from the state."""
         if os.environ.get("RESUME_FROM_INCREMENTAL_STATE", "false") != "true":
             return
-        for stream_name, stream_state in self._state.get("bookmarks", {}).items():
+        # read raw state from file
+        state_dict: dict = {}
+        if isinstance(state, dict):
+            state_dict = state
+        elif state:
+            state_dict = read_json_file(state)
+        
+        for stream_name, stream_state in state_dict.get("bookmarks", {}).items():
             if "starting_replication_value" not in stream_state:
                 self.completed_streams.append(stream_name)
 
@@ -513,7 +520,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         """
         self.register_streams_from_catalog(catalog)
         self.register_state_from_file(state)
-        self.register_completed_streams()
+        self.register_completed_streams(state)
         self._emit_estimated_record_totals_snapshot()
         self.sync_all()
 
