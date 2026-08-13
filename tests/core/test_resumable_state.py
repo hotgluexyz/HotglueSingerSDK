@@ -84,7 +84,7 @@ def _state_messages(messages: List[dict]) -> List[dict]:
     return [m for m in messages if m["type"] == SingerMessageType.STATE]
 
 
-def test_sorted_leaf_interim_state_is_finalized_and_matches_records():
+def test_sorted_leaf_interim_state_matches_records_and_keeps_markers():
     class SortedLeafTap(Tap):
         name = "sorted-leaf-tap"
 
@@ -105,14 +105,14 @@ def test_sorted_leaf_interim_state_is_finalized_and_matches_records():
     assert first_interim["replication_key"] == "updatedAt"
     assert first_interim["replication_key_value"] == "2021-01-02T00:00:00Z"
     assert PROGRESS_MARKERS not in first_interim
-    assert STARTING_MARKER not in first_interim
-    assert SIGNPOST_MARKER not in first_interim
+    assert STARTING_MARKER in first_interim
+    assert SIGNPOST_MARKER in first_interim
 
     second_interim = states[1]["value"]["bookmarks"]["sorted_leaf"]
     assert second_interim["replication_key_value"] == "2021-01-04T00:00:00Z"
     assert PROGRESS_MARKERS not in second_interim
-    assert STARTING_MARKER not in second_interim
-    assert SIGNPOST_MARKER not in second_interim
+    assert STARTING_MARKER in second_interim
+    assert SIGNPOST_MARKER in second_interim
 
 
 def test_unsorted_leaf_interim_state_keeps_progress_markers():

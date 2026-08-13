@@ -880,11 +880,7 @@ class Stream(metaclass=abc.ABCMeta):
         return self.is_sorted and not self.child_streams
 
     def _write_state_message(self) -> None:
-        """Write out a STATE message with the latest state.
-
-        For sorted streams with no children, emit a finalized copy so mid-sync
-        STATE is resumable (no progress markers / interim keys).
-        """
+        """Write out a STATE message with the latest state."""
         singer.write_message(StateMessage(value=self.tap_state))
 
     def _generate_schema_messages(self) -> Generator[SchemaMessage, None, None]:
