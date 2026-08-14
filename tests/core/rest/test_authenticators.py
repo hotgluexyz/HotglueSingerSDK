@@ -216,6 +216,7 @@ def test_oauth_authenticator_hg_access_token_refresh(
 ):
     rest_tap._config["_refresh_token_via_hg_api"] = True
     rest_tap._config["refresh_token"] = "keep-me"
+    monkeypatch.setattr(rest_tap, "confirm_fetch_access_token_support", lambda: True)
 
     monkeypatch.setenv("API_URL", "https://api.hotglue.com")
     monkeypatch.setenv("ENV_ID", "env-1")
@@ -246,22 +247,32 @@ def test_oauth_authenticator_hg_access_token_refresh(
     assert requests_mock.last_request.headers["x-api-key"] == "secret-key"
 
 
-def test_oauth_authenticator_hg_refresh_requires_env(
+def test_oauth_authenticator_falls_back_to_local_when_hg_refresh_fails(
     rest_tap: Tap,
+    requests_mock: requests_mock.Mocker,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ):
     rest_tap._config["_refresh_token_via_hg_api"] = True
+    monkeypatch.setattr(rest_tap, "confirm_fetch_access_token_support", lambda: True)
 
     for env_var in ["API_URL", "ENV_ID", "FLOW", "TENANT", "TAP", "API_KEY"]:
         monkeypatch.delenv(env_var, raising=False)
+
+    local_request = requests_mock.post(
+        "https://example.com/oauth",
+        json={"access_token": "local-token", "expires_in": 123},
+    )
 
     authenticator = _FakeOAuthAuthenticator(
         stream=rest_tap.streams["some_stream"],
         auth_endpoint="https://example.com/oauth",
     )
+    authenticator.update_access_token()
 
-    with pytest.raises(RuntimeError, match="Missing required env vars"):
-        authenticator.update_access_token()
+    assert rest_tap.config["access_token"] == "local-token"
+    assert local_request.call_count == 1
+    assert "Failed to update access token via Hotglue API" in caplog.text
 
 
 def test_oauth_authenticator_local_refresh_when_hg_flag_not_true(
