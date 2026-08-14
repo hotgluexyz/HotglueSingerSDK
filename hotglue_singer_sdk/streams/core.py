@@ -1375,6 +1375,7 @@ class Stream(metaclass=abc.ABCMeta):
         Args:
             context: Stream partition or context dictionary.
         """
+        self.logger.info(f"RESUME_FROM_INCREMENTAL_STATE:  {os.environ.get('RESUME_FROM_INCREMENTAL_STATE')}")
         msg = f"Beginning {self.replication_method.lower()} sync of '{self.name}'"
         if context:
             msg += f" with context: {context}"
