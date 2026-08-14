@@ -1335,12 +1335,32 @@ class Stream(metaclass=abc.ABCMeta):
         # Reset interim bookmarks before emitting final STATE message:
         self._write_state_message()
     
+    def _ancestor_stream_names(self) -> List[str]:
+        """Return Singer names for all ancestor parent streams."""
+        names: List[str] = []
+        parent_type = self.parent_stream_type
+        seen: Set[Type["Stream"]] = set()
+        while parent_type is not None and parent_type not in seen:
+            seen.add(parent_type)
+            names.append(parent_type.name)
+            parent_type = parent_type.parent_stream_type
+        return names
+
     def should_recovery_sync(self) -> bool:
         """Determine if a recovery sync should be performed for this stream.
+
+        Skip only when this stream, and all ancestor parent
+        streams completed on the previous run. Ancestors are included because
+        an unfinished parent (or grandparent) can introduce new child contexts.
+
+        Not checking descendants or siblings because any unfinidhed child or sibling 
+        will also make the parent stream unfinished.
         """
-        check_streams = [self.name] + [child_stream.name for child_stream in self.child_streams] + [parent_stream.name for parent_stream in self.parent_stream_type]
-        # check state to see if any of the streams have been synced on previous run
-        if all(stream in self.tap.completed_streams for stream in check_streams):
+        check_streams = (
+            [self.name]
+            + self._ancestor_stream_names()
+        )
+        if all(stream in self._tap.completed_streams for stream in check_streams):
             return False
         return True
 

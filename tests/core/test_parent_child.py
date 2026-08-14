@@ -145,3 +145,87 @@ def test_child_deselected_parent(tap_with_deselected_parent: MyTap):
     ]
     assert len(child_record_messages) == 9
     assert all("pid" in msg["record"] for msg in child_record_messages)
+
+
+class RecoveryGrandparent(Stream):
+    name = "grandparent"
+    schema = {"type": "object", "properties": {"id": {"type": "integer"}}}
+
+    def get_child_context(self, record: dict, context: dict | None) -> dict:
+        return {"gid": record["id"]}
+
+    def get_records(self, context: dict | None):
+        yield {"id": 1}
+
+
+class RecoveryParent(Stream):
+    name = "parent"
+    schema = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "gid": {"type": "integer"},
+        },
+    }
+    parent_stream_type = RecoveryGrandparent
+
+    def get_child_context(self, record: dict, context: dict | None) -> dict:
+        return {"pid": record["id"]}
+
+    def get_records(self, context: dict | None):
+        yield {"id": 1, "gid": context["gid"]}
+
+
+class RecoveryChild(Stream):
+    name = "child"
+    schema = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer"},
+            "pid": {"type": "integer"},
+        },
+    }
+    parent_stream_type = RecoveryParent
+
+    def get_records(self, context: dict | None):
+        yield {"id": 1, "pid": context["pid"]}
+
+
+class RecoveryTap(Tap):
+    name = "recovery-tap"
+
+    def discover_streams(self):
+        return [
+            RecoveryGrandparent(self),
+            RecoveryParent(self),
+            RecoveryChild(self),
+        ]
+
+
+def test_should_recovery_sync_walks_ancestor_chain():
+    tap = RecoveryTap()
+    child = tap.streams["child"]
+    parent = tap.streams["parent"]
+    grandparent = tap.streams["grandparent"]
+
+    tap.completed_streams = ["child", "parent"]
+    assert child.should_recovery_sync() is True
+    assert parent.should_recovery_sync() is True
+    assert grandparent.should_recovery_sync() is True
+
+    tap.completed_streams = ["child", "parent", "grandparent"]
+    assert child.should_recovery_sync() is False
+    assert parent.should_recovery_sync() is False
+    assert grandparent.should_recovery_sync() is False
+
+
+def test_should_recovery_sync_requires_descendants():
+    tap = RecoveryTap()
+    grandparent = tap.streams["grandparent"]
+
+    tap.completed_streams = ["grandparent", "parent"]
+    assert grandparent.should_recovery_sync() is True
+
+    tap.completed_streams = ["grandparent", "parent", "child"]
+    assert grandparent.should_recovery_sync() is False
+
