@@ -475,7 +475,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         if self.config.get("_refresh_token_via_hg_api", True) is True:
             try:
                 # check if access_token_support is available
-                if self.confirm_fetch_access_token_support():
+                if self._tap.confirm_fetch_access_token_support():
                     self._update_access_token_via_hg_api()
                     return
             except Exception as ex:
