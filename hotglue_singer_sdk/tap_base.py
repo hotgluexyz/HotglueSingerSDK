@@ -499,7 +499,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
     
     def register_completed_streams(self, state) -> None:
         """Register completed streams from the state."""
-        if os.environ.get("RESUME_FROM_INCREMENTAL_STATE", "false") != "true" and state == "incremental_state.json":
+        if os.environ.get("RESUME_FROM_INCREMENTAL_STATE", "false") != "true" and not state.endswith("incremental_state.json"):
             return
         # read raw state from file
         state_dict: dict = {}
