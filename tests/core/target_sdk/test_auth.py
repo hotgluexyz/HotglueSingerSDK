@@ -28,6 +28,9 @@ class _FakeTarget:
         self._config_file_path = config_file_path
         self.logger = logging.getLogger("test")
 
+    def confirm_fetch_access_token_support(self) -> bool:
+        return True
+
 
 @pytest.fixture
 def target_config():
@@ -105,7 +108,7 @@ def test_target_oauth_hg_api_refresh_requires_env(
     auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
 
     with pytest.raises(RuntimeError, match="Missing required env vars"):
-        auth.update_access_token()
+        auth._update_access_token_via_hg_api()
 
 
 def test_target_oauth_local_refresh_when_hg_flag_false(
