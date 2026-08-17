@@ -173,9 +173,14 @@ class OAuthAuthenticator(Authenticator):
         return not ((expires_in - now) < 120)
 
     def update_access_token(self) -> None:
-        if self._config.get("_refresh_token_via_hg_api", False) is True:
-            self._update_access_token_via_hg_api()
-            return
+        if self._config.get("_refresh_token_via_hg_api", True) is True:
+            try:
+                # check if access_token_support is available
+                if self._target.confirm_fetch_access_token_support():
+                    self._update_access_token_via_hg_api()
+                    return
+            except Exception as ex:
+                self.logger.warning(f"Failed to update access token via Hotglue API: {ex}")
         self._update_access_token_locally()
 
     def _update_access_token_via_hg_api(self) -> None:
