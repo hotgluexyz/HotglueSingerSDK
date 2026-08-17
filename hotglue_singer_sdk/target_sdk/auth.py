@@ -197,7 +197,7 @@ class OAuthAuthenticator(Authenticator):
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         self.logger.info(f"Oauth request - endpoint: {self._auth_endpoint}, body: {self.oauth_request_body}")
         token_response = requests.post(
-            self._auth_endpoint, data=self.oauth_request_body, headers=headers
+            self._auth_endpoint, data=self.oauth_request_body, headers=headers, timeout=300
         )
 
         try:
