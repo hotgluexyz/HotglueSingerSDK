@@ -1354,7 +1354,7 @@ class Stream(metaclass=abc.ABCMeta):
         an unfinished parent (or grandparent) can introduce new child contexts.
 
         Not checking descendants or siblings because any unfinidhed child or sibling 
-        will also make the parent stream unfinished.
+        means the ancestor stream is unfinished.
         """
         check_streams = (
             [self.name]
@@ -1375,7 +1375,6 @@ class Stream(metaclass=abc.ABCMeta):
         Args:
             context: Stream partition or context dictionary.
         """
-        self.logger.info(f"RESUME_FROM_INCREMENTAL_STATE:  {os.environ.get('RESUME_FROM_INCREMENTAL_STATE')}")
         msg = f"Beginning {self.replication_method.lower()} sync of '{self.name}'"
         if context:
             msg += f" with context: {context}"

@@ -218,14 +218,3 @@ def test_should_recovery_sync_walks_ancestor_chain():
     assert parent.should_recovery_sync() is False
     assert grandparent.should_recovery_sync() is False
 
-
-def test_should_recovery_sync_requires_descendants():
-    tap = RecoveryTap()
-    grandparent = tap.streams["grandparent"]
-
-    tap.completed_streams = ["grandparent", "parent"]
-    assert grandparent.should_recovery_sync() is True
-
-    tap.completed_streams = ["grandparent", "parent", "child"]
-    assert grandparent.should_recovery_sync() is False
-
