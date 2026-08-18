@@ -31,6 +31,7 @@ def _get_access_token_response(endpoint: str, api_key: str) -> requests.Response
         endpoint,
         params={"include_properties": "expires_in"},
         headers={"x-api-key": api_key},
+        timeout=300,
     )
     status_code = token_response.status_code
     if status_code in [429, 423] or 500 <= status_code <= 599:

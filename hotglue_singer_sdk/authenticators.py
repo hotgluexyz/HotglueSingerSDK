@@ -472,10 +472,15 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         Raises:
             RuntimeError: When OAuth login fails.
         """
-        if self.config.get("_refresh_token_via_hg_api", False) is True:
-            self._update_access_token_via_hg_api()
-            return
-        
+        if self.config.get("_refresh_token_via_hg_api", True) is True:
+            try:
+                # check if access_token_support is available
+                if self._tap.confirm_fetch_access_token_support():
+                    self._update_access_token_via_hg_api()
+                    return
+            except Exception as ex:
+                self.logger.warning(f"Failed to update access token via Hotglue API: {ex}")
+        # fallback to local refresh
         self.update_access_token_locally()
 
     def update_access_token_locally(self) -> None:
