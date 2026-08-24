@@ -55,6 +55,24 @@ class CapturingSinkExternalAllowed(CapturingSink):
     allows_externalid = ["widgets"]
 
 
+class CustomDataSink(CapturingSink):
+    def upsert_record(self, record: dict, context: dict):
+        id, success, _ = super().upsert_record(record, context)
+        return id, success, {
+            "customData": {
+                "Notes": "from-target",
+                "validation": "hgi-10581",
+            }
+        }
+
+
+class PreprocessStripsFieldSink(CapturingSink):
+    def preprocess_record(self, record: dict, context: dict) -> dict:
+        record = dict(record)
+        record.pop("Notes", None)
+        return record
+
+
 class ErrorSink(HotglueSink):
     name = "widgets"
     endpoint = "/widgets"
@@ -278,6 +296,73 @@ def test_hash_deterministic():
     h1 = sink.build_record_hash(record)
     h2 = sink.build_record_hash(record)
     assert h1 == h2
+
+
+def test_target_state_fields_in_custom_data():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_snapshot(
+        {"target_state_fields": ["Notes"], "target_state_include_hash": False}
+    )
+
+    record = {"name": "a", "externalId": "e1", "Notes": "snapshot note"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"Notes": "snapshot note"}
+
+
+def test_target_state_fields_use_source_record_before_preprocess():
+    target = FakeTarget()
+    sink = _make_sink(target, PreprocessStripsFieldSink)
+    sink.configure_target_state_snapshot({"target_state_fields": ["Notes"]})
+
+    record = {"name": "a", "externalId": "e1", "Notes": "kept from singer"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"Notes": "kept from singer"}
+
+
+def test_target_state_include_hash_in_custom_data():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_snapshot({"target_state_include_hash": True})
+
+    record = {"name": "a", "externalId": "e1"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"]["hash"] == state_entry["hash"]
+
+
+def test_target_custom_data_wins_merge():
+    target = FakeTarget()
+    sink = _make_sink(target, CustomDataSink)
+    sink.configure_target_state_snapshot(
+        {"target_state_fields": ["Notes"], "target_state_include_hash": True}
+    )
+
+    record = {"name": "a", "externalId": "e1", "Notes": "from-etl"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {
+        "Notes": "from-target",
+        "hash": state_entry["hash"],
+        "validation": "hgi-10581",
+    }
+
+
+def test_no_custom_data_without_snapshot_config():
+    target = FakeTarget()
+    sink = _make_sink(target)
+
+    record = {"name": "a", "externalId": "e1", "Notes": "ignored"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert "customData" not in state_entry
 
 
 def test_externalid_removed_from_payload_but_in_state():

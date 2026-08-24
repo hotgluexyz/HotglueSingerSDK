@@ -49,7 +49,19 @@ class HotglueBaseSink(Rest):
     ) -> None:
         self._state = dict(target._state)
         self._target = target
+        self._target_state_fields: List[str] = []
+        self._target_state_include_hash = False
         super().__init__(target, stream_name, schema, key_properties)
+
+    def configure_target_state_snapshot(self, x_hotglue: Optional[dict]) -> None:
+        """Read ``x-hotglue`` SCHEMA metadata for snapshot CustomData fields."""
+        settings = x_hotglue if isinstance(x_hotglue, dict) else {}
+        self._target_state_fields = [
+            name
+            for name in (settings.get("target_state_fields") or [])
+            if isinstance(name, str)
+        ]
+        self._target_state_include_hash = bool(settings.get("target_state_include_hash"))
 
     def url(self, endpoint=None):
         if not endpoint:
@@ -128,7 +140,30 @@ class HotglueBaseSink(Rest):
         state["error"] = self.error_to_string(state.get("error"))
         return state
 
-    def update_state(self, state: dict, is_duplicate=False, record=None):
+    def _enrich_snapshot_custom_data(self, state: dict, source_record: dict) -> None:
+        """Merge ETL snapshot fields into ``customData``; target-provided values win."""
+        custom_data = {}
+        for field_name in self._target_state_fields:
+            value = source_record.get(field_name)
+            if value is not None:
+                custom_data[field_name] = value
+        if self._target_state_include_hash:
+            record_hash = state.get("hash")
+            if record_hash is not None:
+                custom_data["hash"] = record_hash
+        target_custom_data = state.get("customData")
+        if isinstance(target_custom_data, dict):
+            custom_data.update(target_custom_data)
+        if custom_data:
+            state["customData"] = custom_data
+
+    def update_state(
+        self,
+        state: dict,
+        is_duplicate: bool = False,
+        record: Optional[dict] = None,
+        source_record: Optional[dict] = None,
+    ) -> None:
         if is_duplicate:
             self.logger.info(f"Record of type {self.name} already exists with id: {state.get('id')}")
             self.latest_state["summary"][self.name]["existing"] += 1
@@ -145,6 +180,14 @@ class HotglueBaseSink(Rest):
         # add the mapped record to the state if it exists and env var OUTPUT_MAPPED_RECORD is set to true
         if record and os.getenv("OUTPUT_MAPPED_RECORD", "false").lower() == "true":
             state["mapped_record"] = record
+
+        if (
+            source_record
+            and not is_duplicate
+            and state.get("success") is not False
+            and (self._target_state_fields or self._target_state_include_hash)
+        ):
+            self._enrich_snapshot_custom_data(state, source_record)
 
         self.latest_state["bookmarks"][self.name].append(state)
 
@@ -234,6 +277,7 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         if not self.latest_state:
             self.init_state()
 
+        source_record = dict(record)
         id = None
         external_id = None
         state_updates = dict()
@@ -273,7 +317,11 @@ class HotglueSink(HotglueBaseSink, RecordSink):
             external_id = record.pop(external_id_key, None) or record.pop(external_id_key.lower(), None)
 
         if existing_state:
-            return self.update_state(existing_state, is_duplicate=True, record=record)
+            return self.update_state(
+                existing_state,
+                is_duplicate=True,
+                record=record,
+            )
 
         try:
             id, success, state_updates = self.upsert_record(record, context)
@@ -309,7 +357,12 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         if state_updates and isinstance(state_updates, dict):
             state = dict(state, **state_updates)
 
-        self.update_state(state, is_duplicate=is_duplicate, record=record)
+        self.update_state(
+            state,
+            is_duplicate=is_duplicate,
+            record=record,
+            source_record=source_record,
+        )
 
 
 class HotglueBatchSink(HotglueBaseSink, BatchSink):

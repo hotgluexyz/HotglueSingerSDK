@@ -328,6 +328,16 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
                 )
                 self.drain_one(sink)
 
+    def _configure_sink_target_state_snapshot(
+        self, stream_name: str, x_hotglue: Optional[dict]
+    ) -> None:
+        """Pass SCHEMA ``x-hotglue`` snapshot settings to sinks that support them."""
+        for stream_map in self.mapper.stream_maps.get(stream_name, []):
+            sink = self.get_sink(stream_map.stream_alias)
+            configure = getattr(sink, "configure_target_state_snapshot", None)
+            if configure:
+                configure(x_hotglue)
+
     def _process_schema_message(self, message_dict: dict) -> None:
         """Process a SCHEMA messages.
 
@@ -357,11 +367,14 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
             )
             do_registration = True
 
+        x_hotglue = message_dict.get("x-hotglue")
+
         if not do_registration:
             self.logger.debug(
                 f"No changes detected in SCHEMA message for stream '{stream_name}'. "
                 "Ignoring."
             )
+            self._configure_sink_target_state_snapshot(stream_name, x_hotglue)
             return
 
         self.mapper.register_raw_stream_schema(
@@ -376,6 +389,7 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
                 schema=stream_map.transformed_schema,
                 key_properties=stream_map.transformed_key_properties,
             )
+        self._configure_sink_target_state_snapshot(stream_name, x_hotglue)
 
     @property
     def _max_record_age_in_minutes(self) -> float:
