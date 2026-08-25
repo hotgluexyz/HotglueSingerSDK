@@ -320,7 +320,7 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
             sink.tally_record_read()
             prepare_snapshot = getattr(sink, "prepare_snapshot_context", None)
             if prepare_snapshot:
-                prepare_snapshot(transformed_record, context)
+                prepare_snapshot(raw_record, context)
             transformed_record = sink.preprocess_record(transformed_record, context)
             sink.process_record(transformed_record, context)
             sink._after_process_record(context)

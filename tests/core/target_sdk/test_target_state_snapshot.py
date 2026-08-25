@@ -47,8 +47,8 @@ class SnapshotTarget(Target):
     EXTERNAL_ID_KEY = "externalId"
     default_sink_class = SnapshotCapturingSink
 
-    def __init__(self) -> None:
-        super().__init__(config={})
+    def __init__(self, config: Optional[dict] = None) -> None:
+        super().__init__(config=config or {})
         self._state = {}
         self._latest_state = {}
         self.incremental_target_state_path = "/tmp/nonexistent_snapshot_target_state.json"
@@ -58,6 +58,22 @@ class SnapshotStripsFieldTarget(SnapshotTarget):
     """Snapshot target whose sink strips fields during preprocess."""
 
     default_sink_class = SnapshotStripsFieldSink
+
+
+class MappedSnapshotTarget(SnapshotTarget):
+    """Snapshot target with a stream map that renames/removes Notes."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            config={
+                "stream_maps": {
+                    "widgets": {
+                        "description": "Notes",
+                        "Notes": None,
+                    }
+                }
+            }
+        )
 
 
 def _schema_message(
@@ -163,6 +179,27 @@ def test_record_message_preserves_source_fields_after_preprocess():
     sink = target.get_sink("widgets")
     state_entry = sink.latest_state["bookmarks"]["widgets"][0]
     assert state_entry["customData"] == {"Notes": "kept from singer"}
+
+
+def test_snapshot_fields_use_singer_record_before_stream_map():
+    """Configured fields are read from the Singer RECORD, not post-map shape."""
+    target = MappedSnapshotTarget()
+    target._process_schema_message(
+        _schema_message(x_hotglue={"target_state_fields": ["Notes"]})
+    )
+    target._process_record_message(
+        _record_message(
+            record={
+                "name": "a",
+                "externalId": "e1",
+                "Notes": "from singer before map",
+            }
+        )
+    )
+
+    sink = target.get_sink("widgets")
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"Notes": "from singer before map"}
 
 
 @pytest.mark.parametrize(
