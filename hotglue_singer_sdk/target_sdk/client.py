@@ -16,6 +16,7 @@ from hotglue_etl_exceptions import InvalidCredentialsError, InvalidPayloadError
 
 class HotglueBaseSink(Rest):
     summary_init = False
+    SNAPSHOT_FIELD_VALUES_CONTEXT_KEY = "_snapshot_field_values"
     # include any stream names if externalId needs to be passed in the payload
     allows_externalid = []
     previous_state = None
@@ -67,6 +68,28 @@ class HotglueBaseSink(Rest):
         self._target_state_include_hash = (
             settings.get("target_state_include_hash") is True
         )
+
+    def snapshot_enabled(self) -> bool:
+        """Return whether this sink should enrich bookmark ``customData``."""
+        return bool(self._target_state_fields or self._target_state_include_hash)
+
+    def capture_snapshot_field_values(self, record: dict) -> dict:
+        """Capture configured ETL field values before preprocess can mutate them."""
+        captured = {}
+        for field_name in self._target_state_fields:
+            if field_name not in record:
+                continue
+            value = record[field_name]
+            if value is not None:
+                captured[field_name] = copy.deepcopy(value)
+        return captured
+
+    def prepare_snapshot_context(self, record: dict, context: dict) -> None:
+        """Stash configured field values in context before external preprocess."""
+        if self._target_state_fields:
+            context[self.SNAPSHOT_FIELD_VALUES_CONTEXT_KEY] = (
+                self.capture_snapshot_field_values(record)
+            )
 
     def url(self, endpoint=None):
         if not endpoint:
@@ -145,13 +168,11 @@ class HotglueBaseSink(Rest):
         state["error"] = self.error_to_string(state.get("error"))
         return state
 
-    def _enrich_snapshot_custom_data(self, state: dict, source_record: dict) -> None:
+    def _enrich_snapshot_custom_data(
+        self, state: dict, snapshot_field_values: Optional[dict] = None
+    ) -> None:
         """Merge ETL snapshot fields into ``customData``; target-provided values win."""
-        custom_data = {}
-        for field_name in self._target_state_fields:
-            value = source_record.get(field_name)
-            if value is not None:
-                custom_data[field_name] = value
+        custom_data = dict(snapshot_field_values or {})
         if self._target_state_include_hash:
             record_hash = state.get("hash")
             if record_hash is not None:
@@ -167,7 +188,7 @@ class HotglueBaseSink(Rest):
         state: dict,
         is_duplicate: bool = False,
         record: Optional[dict] = None,
-        source_record: Optional[dict] = None,
+        snapshot_field_values: Optional[dict] = None,
     ) -> None:
         if is_duplicate:
             self.logger.info(f"Record of type {self.name} already exists with id: {state.get('id')}")
@@ -187,12 +208,11 @@ class HotglueBaseSink(Rest):
             state["mapped_record"] = record
 
         if (
-            source_record is not None
-            and not is_duplicate
+            not is_duplicate
             and state.get("success") is not False
-            and (self._target_state_fields or self._target_state_include_hash)
+            and self.snapshot_enabled()
         ):
-            self._enrich_snapshot_custom_data(state, source_record)
+            self._enrich_snapshot_custom_data(state, snapshot_field_values)
 
         self.latest_state["bookmarks"][self.name].append(state)
 
@@ -282,9 +302,11 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         if not self.latest_state:
             self.init_state()
 
-        source_record = context.pop("_snapshot_source_record", None)
-        if source_record is None:
-            source_record = copy.deepcopy(record)
+        snapshot_field_values = context.pop(
+            self.SNAPSHOT_FIELD_VALUES_CONTEXT_KEY, None
+        )
+        if snapshot_field_values is None and self._target_state_fields:
+            snapshot_field_values = self.capture_snapshot_field_values(record)
         id = None
         external_id = None
         state_updates = dict()
@@ -368,7 +390,7 @@ class HotglueSink(HotglueBaseSink, RecordSink):
             state,
             is_duplicate=is_duplicate,
             record=record,
-            source_record=source_record,
+            snapshot_field_values=snapshot_field_values,
         )
 
 

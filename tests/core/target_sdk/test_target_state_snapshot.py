@@ -225,7 +225,7 @@ def test_duplicate_bookmark_skips_custom_data_enrichment():
             "externalId": "e1",
         },
         is_duplicate=True,
-        source_record={"Notes": "should not appear"},
+        snapshot_field_values={"Notes": "should not appear"},
     )
 
     state_entry = sink.latest_state["bookmarks"]["widgets"][0]

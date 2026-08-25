@@ -334,7 +334,7 @@ def test_target_state_fields_use_deepcopy_for_nested_values():
     assert state_entry["customData"] == {"details": {"Notes": "original"}}
 
 
-def test_target_state_include_hash_with_empty_source_record():
+def test_target_state_include_hash_without_field_values():
     target = FakeTarget()
     sink = _make_sink(target)
     sink.configure_target_state_snapshot({"target_state_include_hash": True})
@@ -342,14 +342,43 @@ def test_target_state_include_hash_with_empty_source_record():
 
     sink.update_state(
         {"success": True, "hash": "empty-record-hash", "id": "id-1", "externalId": "e1"},
-        source_record={},
     )
 
     state_entry = sink.latest_state["bookmarks"]["widgets"][0]
     assert state_entry["customData"] == {"hash": "empty-record-hash"}
 
 
-def test_target_state_fields_use_source_record_before_preprocess():
+def test_capture_snapshot_field_values_only_configured_fields():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_snapshot({"target_state_fields": ["Notes"]})
+
+    captured = sink.capture_snapshot_field_values(
+        {
+            "name": "a",
+            "externalId": "e1",
+            "Notes": "keep me",
+            "ignored": "drop me",
+        }
+    )
+
+    assert captured == {"Notes": "keep me"}
+
+
+def test_snapshot_disabled_skips_field_capture():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    context = {}
+
+    sink.prepare_snapshot_context(
+        {"name": "a", "externalId": "e1", "Notes": "ignored"},
+        context,
+    )
+
+    assert context == {}
+
+
+def test_target_state_fields_captured_before_preprocess():
     target = FakeTarget()
     sink = _make_sink(target, PreprocessStripsFieldSink)
     sink.configure_target_state_snapshot({"target_state_fields": ["Notes"]})
