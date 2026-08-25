@@ -312,6 +312,43 @@ def test_target_state_fields_in_custom_data():
     assert state_entry["customData"] == {"Notes": "snapshot note"}
 
 
+class PreprocessMutatesNestedSink(CapturingSink):
+    def preprocess_record(self, record: dict, context: dict) -> dict:
+        record["details"]["Notes"] = "mutated"
+        return record
+
+
+def test_target_state_fields_use_deepcopy_for_nested_values():
+    target = FakeTarget()
+    sink = _make_sink(target, PreprocessMutatesNestedSink)
+    sink.configure_target_state_snapshot({"target_state_fields": ["details"]})
+
+    record = {
+        "name": "a",
+        "externalId": "e1",
+        "details": {"Notes": "original"},
+    }
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"details": {"Notes": "original"}}
+
+
+def test_target_state_include_hash_with_empty_source_record():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_snapshot({"target_state_include_hash": True})
+    sink.init_state()
+
+    sink.update_state(
+        {"success": True, "hash": "empty-record-hash", "id": "id-1", "externalId": "e1"},
+        source_record={},
+    )
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"hash": "empty-record-hash"}
+
+
 def test_target_state_fields_use_source_record_before_preprocess():
     target = FakeTarget()
     sink = _make_sink(target, PreprocessStripsFieldSink)

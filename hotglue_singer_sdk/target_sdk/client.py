@@ -1,5 +1,6 @@
 """WoocommerceSink target sink class, which handles writing streams."""
 
+import copy
 import hashlib
 import json
 import os
@@ -56,12 +57,16 @@ class HotglueBaseSink(Rest):
     def configure_target_state_snapshot(self, x_hotglue: Optional[dict]) -> None:
         """Read ``x-hotglue`` SCHEMA metadata for snapshot CustomData fields."""
         settings = x_hotglue if isinstance(x_hotglue, dict) else {}
-        self._target_state_fields = [
-            name
-            for name in (settings.get("target_state_fields") or [])
-            if isinstance(name, str)
-        ]
-        self._target_state_include_hash = bool(settings.get("target_state_include_hash"))
+        raw_fields = settings.get("target_state_fields")
+        if isinstance(raw_fields, list):
+            self._target_state_fields = [
+                name for name in raw_fields if isinstance(name, str)
+            ]
+        else:
+            self._target_state_fields = []
+        self._target_state_include_hash = (
+            settings.get("target_state_include_hash") is True
+        )
 
     def url(self, endpoint=None):
         if not endpoint:
@@ -182,7 +187,7 @@ class HotglueBaseSink(Rest):
             state["mapped_record"] = record
 
         if (
-            source_record
+            source_record is not None
             and not is_duplicate
             and state.get("success") is not False
             and (self._target_state_fields or self._target_state_include_hash)
@@ -277,7 +282,9 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         if not self.latest_state:
             self.init_state()
 
-        source_record = dict(record)
+        source_record = context.pop("_snapshot_source_record", None)
+        if source_record is None:
+            source_record = copy.deepcopy(record)
         id = None
         external_id = None
         state_updates = dict()

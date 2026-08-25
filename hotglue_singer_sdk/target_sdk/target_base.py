@@ -318,6 +318,7 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
             sink._validate_and_parse(transformed_record)
 
             sink.tally_record_read()
+            context["_snapshot_source_record"] = copy.deepcopy(transformed_record)
             transformed_record = sink.preprocess_record(transformed_record, context)
             sink.process_record(transformed_record, context)
             sink._after_process_record(context)

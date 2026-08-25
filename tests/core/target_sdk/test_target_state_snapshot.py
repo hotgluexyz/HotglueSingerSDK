@@ -12,6 +12,7 @@ from hotglue_singer_sdk.target_sdk.target_base import Target
 from tests.core.target_sdk.test_sink_state import (
     CapturingSink,
     FakeTarget,
+    PreprocessStripsFieldSink,
     UpsertErrorSink,
     _make_sink,
 )
@@ -33,6 +34,12 @@ class SnapshotCapturingSink(CapturingSink):
     name = "widgets"
 
 
+class SnapshotStripsFieldSink(PreprocessStripsFieldSink):
+    """PreprocessStripsFieldSink registered under the widgets stream name."""
+
+    name = "widgets"
+
+
 class SnapshotTarget(Target):
     """Minimal target for SCHEMA to sink snapshot wiring tests."""
 
@@ -45,6 +52,12 @@ class SnapshotTarget(Target):
         self._state = {}
         self._latest_state = {}
         self.incremental_target_state_path = "/tmp/nonexistent_snapshot_target_state.json"
+
+
+class SnapshotStripsFieldTarget(SnapshotTarget):
+    """Snapshot target whose sink strips fields during preprocess."""
+
+    default_sink_class = SnapshotStripsFieldSink
 
 
 def _schema_message(
@@ -131,6 +144,27 @@ def test_duplicate_schema_message_updates_snapshot_config():
     assert sink._target_state_include_hash is True
 
 
+def test_record_message_preserves_source_fields_after_preprocess():
+    """Target path captures ETL fields before sink preprocess strips them."""
+    target = SnapshotStripsFieldTarget()
+    target._process_schema_message(
+        _schema_message(x_hotglue={"target_state_fields": ["Notes"]})
+    )
+    target._process_record_message(
+        _record_message(
+            record={
+                "name": "a",
+                "externalId": "e1",
+                "Notes": "kept from singer",
+            }
+        )
+    )
+
+    sink = target.get_sink("widgets")
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"Notes": "kept from singer"}
+
+
 @pytest.mark.parametrize(
     ("x_hotglue", "expected_fields", "expected_include_hash"),
     [
@@ -143,6 +177,10 @@ def test_duplicate_schema_message_updates_snapshot_config():
             False,
         ),
         ({"target_state_include_hash": True}, [], True),
+        ({"target_state_fields": 123}, [], False),
+        ({"target_state_fields": "Notes"}, [], False),
+        ({"target_state_include_hash": "false"}, [], False),
+        ({"target_state_include_hash": False}, [], False),
     ],
 )
 def test_configure_target_state_snapshot_parsing(
