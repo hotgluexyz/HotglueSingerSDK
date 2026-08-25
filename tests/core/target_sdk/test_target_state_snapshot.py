@@ -6,7 +6,6 @@ from typing import List, Optional
 
 import pytest
 
-from hotglue_singer_sdk.target_sdk.client import HotglueBaseSink
 from hotglue_singer_sdk.target_sdk.target_base import Target
 
 from tests.core.target_sdk.test_sink_state import (
@@ -108,17 +107,6 @@ def _record_message(
             "Notes": "from schema wiring test",
         },
     }
-
-
-@pytest.fixture(autouse=True)
-def reset_hotglue_base_state():
-    HotglueBaseSink.summary_init = False
-    HotglueBaseSink.previous_state = None
-    HotglueBaseSink.processed_hashes = []
-    yield
-    HotglueBaseSink.summary_init = False
-    HotglueBaseSink.previous_state = None
-    HotglueBaseSink.processed_hashes = []
 
 
 def test_schema_message_configures_sink_for_custom_data():

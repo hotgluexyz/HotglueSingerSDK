@@ -17,6 +17,7 @@ from hotglue_etl_exceptions import InvalidCredentialsError, InvalidPayloadError
 class HotglueBaseSink(Rest):
     summary_init = False
     SNAPSHOT_FIELD_VALUES_CONTEXT_KEY = "_snapshot_field_values"
+    supports_target_state_fields = True
     # include any stream names if externalId needs to be passed in the payload
     allows_externalid = []
     previous_state = None
@@ -56,7 +57,13 @@ class HotglueBaseSink(Rest):
         super().__init__(target, stream_name, schema, key_properties)
 
     def configure_target_state_snapshot(self, x_hotglue: Optional[dict]) -> None:
-        """Read ``x-hotglue`` SCHEMA metadata for snapshot CustomData fields."""
+        """Read ``x-hotglue`` SCHEMA metadata for snapshot CustomData fields.
+
+        ``target_state_fields`` is only honored on per-record sinks (see
+        ``supports_target_state_fields``); a batch sink configured with it will
+        log a one-time warning and skip source-field capture. 
+        ``target_state_include_hash`` works for any sink.
+        """
         settings = x_hotglue if isinstance(x_hotglue, dict) else {}
         raw_fields = settings.get("target_state_fields")
         if isinstance(raw_fields, list):
@@ -68,6 +75,15 @@ class HotglueBaseSink(Rest):
         self._target_state_include_hash = (
             settings.get("target_state_include_hash") is True
         )
+        if self._target_state_fields and not self.supports_target_state_fields:
+            self.logger.warning(
+                f"Stream '{self.name}' configured target_state_fields "
+                f"{self._target_state_fields}, but {type(self).__name__} does not "
+                "support capturing source fields into bookmark customData for "
+                "batch sinks. These fields will be ignored; "
+                "target_state_include_hash is unaffected."
+            )
+            self._target_state_fields = []
 
     def snapshot_enabled(self) -> bool:
         """Return whether this sink should enrich bookmark ``customData``."""
@@ -85,7 +101,13 @@ class HotglueBaseSink(Rest):
         return captured
 
     def prepare_snapshot_context(self, record: dict, context: dict) -> None:
-        """Stash configured field values in context before external preprocess."""
+        """Stash configured field values in context before external preprocess.
+
+        Only meaningful for per-record sinks: batch sinks share one context
+        across every record in the batch, so a value stashed here would be
+        overwritten by the next record and is never read back in
+        ``process_batch``.
+        """
         if self._target_state_fields:
             context[self.SNAPSHOT_FIELD_VALUES_CONTEXT_KEY] = (
                 self.capture_snapshot_field_values(record)
@@ -209,7 +231,7 @@ class HotglueBaseSink(Rest):
 
         if (
             not is_duplicate
-            and state.get("success") is not False
+            and state.get("success", False)
             and self.snapshot_enabled()
         ):
             self._enrich_snapshot_custom_data(state, snapshot_field_values)
@@ -396,6 +418,8 @@ class HotglueSink(HotglueBaseSink, RecordSink):
 
 class HotglueBatchSink(HotglueBaseSink, BatchSink):
     """Hotglue target sink class."""
+
+    supports_target_state_fields = False
 
     def process_batch_record(self, record: dict, index: int) -> dict:
         return record

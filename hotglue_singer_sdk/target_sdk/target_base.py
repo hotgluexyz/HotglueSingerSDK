@@ -318,9 +318,7 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
             sink._validate_and_parse(transformed_record)
 
             sink.tally_record_read()
-            prepare_snapshot = getattr(sink, "prepare_snapshot_context", None)
-            if prepare_snapshot:
-                prepare_snapshot(raw_record, context)
+            sink.prepare_snapshot_context(raw_record, context)
             transformed_record = sink.preprocess_record(transformed_record, context)
             sink.process_record(transformed_record, context)
             sink._after_process_record(context)
@@ -337,9 +335,8 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
         """Pass SCHEMA ``x-hotglue`` snapshot settings to sinks that support them."""
         for stream_map in self.mapper.stream_maps.get(stream_name, []):
             sink = self.get_sink(stream_map.stream_alias)
-            configure = getattr(sink, "configure_target_state_snapshot", None)
-            if configure:
-                configure(x_hotglue)
+            if sink is not None:
+                sink.configure_target_state_snapshot(x_hotglue)
 
     def _process_schema_message(self, message_dict: dict) -> None:
         """Process a SCHEMA messages.
