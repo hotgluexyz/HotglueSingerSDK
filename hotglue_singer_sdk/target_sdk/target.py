@@ -354,7 +354,8 @@ class TargetHotglue(Target):
 
             sink.tally_record_read()
 
-            sink.prepare_snapshot_context(raw_record, context)
+            if hasattr(sink, "prepare_snapshot_context"):
+                sink.prepare_snapshot_context(raw_record, context)
 
             validation_success, transformed_record = self._validate_unified_schema(sink, transformed_record)
             if not validation_success:
