@@ -354,6 +354,9 @@ class TargetHotglue(Target):
 
             sink.tally_record_read()
 
+            if hasattr(sink, "prepare_target_state_field_context"):
+                sink.prepare_target_state_field_context(message_dict["record"], context)
+
             validation_success, transformed_record = self._validate_unified_schema(sink, transformed_record)
             if not validation_success:
                 continue
