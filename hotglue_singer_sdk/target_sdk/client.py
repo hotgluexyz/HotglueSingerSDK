@@ -16,7 +16,7 @@ from hotglue_etl_exceptions import InvalidCredentialsError, InvalidPayloadError
 
 class HotglueBaseSink(Rest):
     summary_init = False
-    SNAPSHOT_FIELD_VALUES_CONTEXT_KEY = "_snapshot_field_values"
+    TARGET_STATE_FIELD_VALUES_CONTEXT_KEY = "_target_state_field_values"
     supports_target_state_fields = True
     # include any stream names if externalId needs to be passed in the payload
     allows_externalid = []
@@ -56,8 +56,8 @@ class HotglueBaseSink(Rest):
         self._target_state_include_hash = False
         super().__init__(target, stream_name, schema, key_properties)
 
-    def configure_target_state_snapshot(self, x_hotglue: Optional[dict]) -> None:
-        """Read ``x-hotglue`` SCHEMA metadata for snapshot CustomData fields.
+    def configure_target_state_custom_data(self, x_hotglue: Optional[dict]) -> None:
+        """Read ``x-hotglue`` SCHEMA metadata for bookmark ``customData`` enrichment.
 
         ``target_state_fields`` is only honored on per-record sinks (see
         ``supports_target_state_fields``); a batch sink configured with it will
@@ -85,11 +85,11 @@ class HotglueBaseSink(Rest):
             )
             self._target_state_fields = []
 
-    def snapshot_enabled(self) -> bool:
-        """Return whether this sink should enrich bookmark ``customData``."""
+    def custom_target_state_data_enabled(self) -> bool:
+        """Return whether SCHEMA ``x-hotglue`` requests SDK enrichment of bookmark ``customData``."""
         return bool(self._target_state_fields or self._target_state_include_hash)
 
-    def capture_snapshot_field_values(self, record: dict) -> dict:
+    def capture_target_state_field_values(self, record: dict) -> dict:
         """Capture configured ETL field values before preprocess can mutate them."""
         captured = {}
         for field_name in self._target_state_fields:
@@ -100,7 +100,7 @@ class HotglueBaseSink(Rest):
                 captured[field_name] = copy.deepcopy(value)
         return captured
 
-    def prepare_snapshot_context(self, record: dict, context: dict) -> None:
+    def prepare_target_state_field_context(self, record: dict, context: dict) -> None:
         """Stash configured field values in context before external preprocess.
 
         Only meaningful for per-record sinks: batch sinks share one context
@@ -109,8 +109,8 @@ class HotglueBaseSink(Rest):
         ``process_batch``.
         """
         if self._target_state_fields:
-            context[self.SNAPSHOT_FIELD_VALUES_CONTEXT_KEY] = (
-                self.capture_snapshot_field_values(record)
+            context[self.TARGET_STATE_FIELD_VALUES_CONTEXT_KEY] = (
+                self.capture_target_state_field_values(record)
             )
 
     def url(self, endpoint=None):
@@ -190,10 +190,10 @@ class HotglueBaseSink(Rest):
         state["error"] = self.error_to_string(state.get("error"))
         return state
 
-    def _enrich_snapshot_custom_data(
+    def _enrich_custom_data(
         self, state: dict, snapshot_field_values: Optional[dict] = None
     ) -> None:
-        """Merge ETL snapshot fields into ``customData``; target-provided values win."""
+        """Merge ETL field values into ``customData``; target-provided values win."""
         custom_data = dict(snapshot_field_values or {})
         if self._target_state_include_hash:
             record_hash = state.get("hash")
@@ -232,9 +232,9 @@ class HotglueBaseSink(Rest):
         if (
             not is_duplicate
             and state.get("success", False)
-            and self.snapshot_enabled()
+            and self.custom_target_state_data_enabled()
         ):
-            self._enrich_snapshot_custom_data(state, snapshot_field_values)
+            self._enrich_custom_data(state, snapshot_field_values)
 
         self.latest_state["bookmarks"][self.name].append(state)
 
@@ -325,10 +325,10 @@ class HotglueSink(HotglueBaseSink, RecordSink):
             self.init_state()
 
         snapshot_field_values = context.pop(
-            self.SNAPSHOT_FIELD_VALUES_CONTEXT_KEY, None
+            self.TARGET_STATE_FIELD_VALUES_CONTEXT_KEY, None
         )
         if snapshot_field_values is None and self._target_state_fields:
-            snapshot_field_values = self.capture_snapshot_field_values(record)
+            snapshot_field_values = self.capture_target_state_field_values(record)
         id = None
         external_id = None
         state_updates = dict()

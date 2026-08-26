@@ -208,13 +208,13 @@ def test_snapshot_fields_use_singer_record_before_stream_map():
         ({"target_state_include_hash": False}, [], False),
     ],
 )
-def test_configure_target_state_snapshot_parsing(
+def test_configure_target_state_custom_data_parsing(
     x_hotglue,
     expected_fields: List[str],
     expected_include_hash: bool,
 ):
     sink = _make_sink(FakeTarget())
-    sink.configure_target_state_snapshot(x_hotglue)
+    sink.configure_target_state_custom_data(x_hotglue)
     assert sink._target_state_fields == expected_fields
     assert sink._target_state_include_hash is expected_include_hash
 
@@ -222,7 +222,7 @@ def test_configure_target_state_snapshot_parsing(
 def test_failed_record_skips_custom_data_enrichment():
     target = FakeTarget()
     sink = _make_sink(target, UpsertErrorSink)
-    sink.configure_target_state_snapshot(
+    sink.configure_target_state_custom_data(
         {"target_state_fields": ["Notes"], "target_state_include_hash": True}
     )
 
@@ -239,7 +239,7 @@ def test_failed_record_skips_custom_data_enrichment():
 def test_duplicate_bookmark_skips_custom_data_enrichment():
     target = FakeTarget()
     sink = _make_sink(target)
-    sink.configure_target_state_snapshot({"target_state_fields": ["Notes"]})
+    sink.configure_target_state_custom_data({"target_state_fields": ["Notes"]})
     sink.init_state()
 
     sink.update_state(

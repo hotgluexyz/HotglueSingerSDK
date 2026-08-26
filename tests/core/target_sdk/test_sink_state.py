@@ -290,7 +290,7 @@ def test_hash_deterministic():
 def test_target_state_fields_in_custom_data():
     target = FakeTarget()
     sink = _make_sink(target)
-    sink.configure_target_state_snapshot(
+    sink.configure_target_state_custom_data(
         {"target_state_fields": ["Notes"], "target_state_include_hash": False}
     )
 
@@ -310,7 +310,7 @@ class PreprocessMutatesNestedSink(CapturingSink):
 def test_target_state_fields_use_deepcopy_for_nested_values():
     target = FakeTarget()
     sink = _make_sink(target, PreprocessMutatesNestedSink)
-    sink.configure_target_state_snapshot({"target_state_fields": ["details"]})
+    sink.configure_target_state_custom_data({"target_state_fields": ["details"]})
 
     record = {
         "name": "a",
@@ -328,7 +328,7 @@ def test_falsy_non_false_success_skips_custom_data_enrichment(success):
     """A falsy but non-``False`` success value is still treated as a failure."""
     target = FakeTarget()
     sink = _make_sink(target)
-    sink.configure_target_state_snapshot({"target_state_include_hash": True})
+    sink.configure_target_state_custom_data({"target_state_include_hash": True})
     sink.init_state()
 
     sink.update_state(
@@ -343,7 +343,7 @@ def test_falsy_non_false_success_skips_custom_data_enrichment(success):
 def test_target_state_include_hash_without_field_values():
     target = FakeTarget()
     sink = _make_sink(target)
-    sink.configure_target_state_snapshot({"target_state_include_hash": True})
+    sink.configure_target_state_custom_data({"target_state_include_hash": True})
     sink.init_state()
 
     sink.update_state(
@@ -354,12 +354,12 @@ def test_target_state_include_hash_without_field_values():
     assert state_entry["customData"] == {"hash": "empty-record-hash"}
 
 
-def test_capture_snapshot_field_values_only_configured_fields():
+def test_capture_target_state_field_values_only_configured_fields():
     target = FakeTarget()
     sink = _make_sink(target)
-    sink.configure_target_state_snapshot({"target_state_fields": ["Notes"]})
+    sink.configure_target_state_custom_data({"target_state_fields": ["Notes"]})
 
-    captured = sink.capture_snapshot_field_values(
+    captured = sink.capture_target_state_field_values(
         {
             "name": "a",
             "externalId": "e1",
@@ -376,7 +376,7 @@ def test_snapshot_disabled_skips_field_capture():
     sink = _make_sink(target)
     context = {}
 
-    sink.prepare_snapshot_context(
+    sink.prepare_target_state_field_context(
         {"name": "a", "externalId": "e1", "Notes": "ignored"},
         context,
     )
@@ -387,7 +387,7 @@ def test_snapshot_disabled_skips_field_capture():
 def test_target_state_fields_captured_before_preprocess():
     target = FakeTarget()
     sink = _make_sink(target, PreprocessStripsFieldSink)
-    sink.configure_target_state_snapshot({"target_state_fields": ["Notes"]})
+    sink.configure_target_state_custom_data({"target_state_fields": ["Notes"]})
 
     record = {"name": "a", "externalId": "e1", "Notes": "kept from singer"}
     sink.process_record(record, context={})
@@ -399,7 +399,7 @@ def test_target_state_fields_captured_before_preprocess():
 def test_target_state_include_hash_in_custom_data():
     target = FakeTarget()
     sink = _make_sink(target)
-    sink.configure_target_state_snapshot({"target_state_include_hash": True})
+    sink.configure_target_state_custom_data({"target_state_include_hash": True})
 
     record = {"name": "a", "externalId": "e1"}
     sink.process_record(record, context={})
@@ -411,7 +411,7 @@ def test_target_state_include_hash_in_custom_data():
 def test_target_custom_data_wins_merge():
     target = FakeTarget()
     sink = _make_sink(target, CustomDataSink)
-    sink.configure_target_state_snapshot(
+    sink.configure_target_state_custom_data(
         {"target_state_fields": ["Notes"], "target_state_include_hash": True}
     )
 
@@ -577,7 +577,7 @@ def test_batch_sink_ignores_target_state_fields_with_warning(caplog):
     sink = _make_sink(target, BatchStateSink)
 
     with caplog.at_level(logging.WARNING):
-        sink.configure_target_state_snapshot(
+        sink.configure_target_state_custom_data(
             {"target_state_fields": ["Notes"], "target_state_include_hash": True}
         )
 

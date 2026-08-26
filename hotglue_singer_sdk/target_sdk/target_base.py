@@ -318,8 +318,8 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
             sink._validate_and_parse(transformed_record)
 
             sink.tally_record_read()
-            if hasattr(sink, "prepare_snapshot_context"):
-                sink.prepare_snapshot_context(raw_record, context)
+            if hasattr(sink, "prepare_target_state_field_context"):
+                sink.prepare_target_state_field_context(raw_record, context)
             transformed_record = sink.preprocess_record(transformed_record, context)
             sink.process_record(transformed_record, context)
             sink._after_process_record(context)
@@ -330,14 +330,14 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
                 )
                 self.drain_one(sink)
 
-    def _configure_sink_target_state_snapshot(
+    def _configure_sink_target_state_custom_data(
         self, stream_name: str, x_hotglue: Optional[dict]
     ) -> None:
-        """Pass SCHEMA ``x-hotglue`` snapshot settings to sinks that support them."""
+        """Pass SCHEMA ``x-hotglue`` customData settings to sinks that support them."""
         for stream_map in self.mapper.stream_maps.get(stream_name, []):
             sink = self.get_sink(stream_map.stream_alias)
-            if sink is not None and hasattr(sink, "configure_target_state_snapshot"):
-                sink.configure_target_state_snapshot(x_hotglue)
+            if sink is not None and hasattr(sink, "configure_target_state_custom_data"):
+                sink.configure_target_state_custom_data(x_hotglue)
 
     def _process_schema_message(self, message_dict: dict) -> None:
         """Process a SCHEMA messages.
@@ -375,7 +375,7 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
                 f"No changes detected in SCHEMA message for stream '{stream_name}'. "
                 "Ignoring."
             )
-            self._configure_sink_target_state_snapshot(stream_name, x_hotglue)
+            self._configure_sink_target_state_custom_data(stream_name, x_hotglue)
             return
 
         self.mapper.register_raw_stream_schema(
@@ -390,7 +390,7 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
                 schema=stream_map.transformed_schema,
                 key_properties=stream_map.transformed_key_properties,
             )
-        self._configure_sink_target_state_snapshot(stream_name, x_hotglue)
+        self._configure_sink_target_state_custom_data(stream_name, x_hotglue)
 
     @property
     def _max_record_age_in_minutes(self) -> float:
