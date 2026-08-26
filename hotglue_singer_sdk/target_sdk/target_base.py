@@ -319,7 +319,7 @@ class Target(PluginBase, SingerReader, metaclass=abc.ABCMeta):
 
             sink.tally_record_read()
             if hasattr(sink, "prepare_target_state_field_context"):
-                sink.prepare_target_state_field_context(raw_record, context)
+                sink.prepare_target_state_field_context(message_dict["record"], context)
             transformed_record = sink.preprocess_record(transformed_record, context)
             sink.process_record(transformed_record, context)
             sink._after_process_record(context)
