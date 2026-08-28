@@ -1353,7 +1353,7 @@ class Stream(metaclass=abc.ABCMeta):
         streams completed on the previous run. Ancestors are included because
         an unfinished parent (or grandparent) can introduce new child contexts.
 
-        Not checking descendants or siblings because any unfinidhed child or sibling 
+        Not checking descendants or siblings because any unfinished child or sibling 
         means the ancestor stream is unfinished.
         """
         check_streams = (
