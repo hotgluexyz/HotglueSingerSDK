@@ -880,20 +880,8 @@ class Stream(metaclass=abc.ABCMeta):
         return self.is_sorted and not self.child_streams
 
     def _write_state_message(self) -> None:
-        """Write out a STATE message with the latest state.
-
-        For sorted streams with no children, emit a finalized copy so mid-sync
-        STATE is resumable (no progress markers / interim keys).
-        """
-        state_to_emit = self.tap_state
-        if self._emits_resumable_interim_state():
-            state_to_emit = copy.deepcopy(self.tap_state)
-            stream_state = state_to_emit.get("bookmarks", {}).get(self.name)
-            if stream_state is not None:
-                finalize_state_progress_markers(stream_state)
-                for partition_state in stream_state.get("partitions", []):
-                    finalize_state_progress_markers(partition_state)
-        singer.write_message(StateMessage(value=state_to_emit))
+        """Write out a STATE message with the latest state."""
+        singer.write_message(StateMessage(value=self.tap_state))
 
     def _generate_schema_messages(self) -> Generator[SchemaMessage, None, None]:
         """Generate schema messages from stream maps.
@@ -1346,6 +1334,35 @@ class Stream(metaclass=abc.ABCMeta):
         self._write_record_count_log(record_count=record_count, context=context)
         # Reset interim bookmarks before emitting final STATE message:
         self._write_state_message()
+    
+    def _ancestor_stream_names(self) -> List[str]:
+        """Return Singer names for all ancestor parent streams."""
+        names: List[str] = []
+        parent_type = self.parent_stream_type
+        seen: Set[Type["Stream"]] = set()
+        while parent_type is not None and parent_type not in seen:
+            seen.add(parent_type)
+            names.append(parent_type.name)
+            parent_type = parent_type.parent_stream_type
+        return names
+
+    def should_recovery_sync(self) -> bool:
+        """Determine if a recovery sync should be performed for this stream.
+
+        Skip only when this stream, and all ancestor parent
+        streams completed on the previous run. Ancestors are included because
+        an unfinished parent (or grandparent) can introduce new child contexts.
+
+        Not checking descendants or siblings because any unfinished child or sibling 
+        means the ancestor stream is unfinished.
+        """
+        check_streams = (
+            [self.name]
+            + self._ancestor_stream_names()
+        )
+        if all(stream in self._tap.completed_streams for stream in check_streams):
+            return False
+        return True
 
     # Public methods ("final", not recommended to be overridden)
 
@@ -1370,6 +1387,10 @@ class Stream(metaclass=abc.ABCMeta):
 
         # Send a SCHEMA message to the downstream target:
         if self.selected:
+            if os.environ.get("RESUME_FROM_INCREMENTAL_STATE", "false") == "true":
+                if not self.should_recovery_sync():
+                    self.logger.info(f"Stream '{self.name}' was already synced on previous run, skipping sync.")
+                    return
             self._write_schema_message()
         # Sync the records themselves:
         self._sync_records(context)
