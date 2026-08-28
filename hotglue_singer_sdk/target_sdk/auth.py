@@ -2,7 +2,7 @@ import json
 import os
 from abc import abstractmethod
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Type
 
 import logging
 import requests
@@ -61,7 +61,7 @@ class BasicAuthenticator(Authenticator):
     
     @classmethod
     def create_for_stream(
-        cls: type[Authenticator],
+        cls: Type[Authenticator],
         target,
         username: str,
         password: str,
