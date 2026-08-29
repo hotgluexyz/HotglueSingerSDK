@@ -14,6 +14,7 @@ from singer import RecordMessage
 from hotglue_singer_sdk.helpers._classproperty import classproperty
 from hotglue_singer_sdk.helpers._singer import Catalog, MetadataMapping
 from hotglue_singer_sdk.helpers.jsonpath import _compile_jsonpath
+from hotglue_singer_sdk.exceptions import CatalogKeyPropertiesMismatchError
 from hotglue_singer_sdk.streams.core import (
     REPLICATION_FULL_TABLE,
     REPLICATION_INCREMENTAL,
@@ -175,6 +176,157 @@ def test_stream_apply_catalog(tap: SimpleTestTap, stream: SimpleTestStream):
     assert stream.replication_key is None
     assert stream.replication_method == REPLICATION_FULL_TABLE
     assert stream.forced_replication_method == REPLICATION_FULL_TABLE
+
+
+def test_apply_catalog_raises_on_key_properties_not_in_schema(
+    tap: SimpleTestTap, stream: SimpleTestStream
+):
+    """Catalog key_properties absent from the live schema should fail fast."""
+    with pytest.raises(CatalogKeyPropertiesMismatchError) as exc_info:
+        stream.apply_catalog(
+            catalog=Catalog.from_dict(
+                {
+                    "streams": [
+                        {
+                            "tap_stream_id": stream.name,
+                            "metadata": MetadataMapping(),
+                            "key_properties": ["date", "source", "medium"],
+                            "stream": stream.name,
+                            "schema": stream.schema,
+                            "replication_method": REPLICATION_INCREMENTAL,
+                            "replication_key": "date",
+                        }
+                    ]
+                }
+            )
+        )
+
+    message = str(exc_info.value)
+    assert "source" in message
+    assert "medium" in message
+    assert stream.primary_keys == []
+    assert stream.replication_key == "updatedAt"
+
+
+def test_apply_catalog_allows_extra_schema_properties(
+    tap: SimpleTestTap, stream: SimpleTestStream
+):
+    """Non-key schema drift (e.g. custom fields) must not fail when PKs match."""
+    # Catalog omits non-key field "value"; live schema still has it.
+    catalog_schema = PropertiesList(
+        Property("id", IntegerType, required=True),
+        Property("updatedAt", DateTimeType, required=True),
+    ).to_dict()
+
+    stream.apply_catalog(
+        catalog=Catalog.from_dict(
+            {
+                "streams": [
+                    {
+                        "tap_stream_id": stream.name,
+                        "metadata": MetadataMapping(),
+                        "key_properties": ["id"],
+                        "stream": stream.name,
+                        "schema": catalog_schema,
+                        "replication_method": REPLICATION_INCREMENTAL,
+                        "replication_key": "updatedAt",
+                    }
+                ]
+            }
+        )
+    )
+
+    assert stream.primary_keys == ["id"]
+    assert stream.replication_key == "updatedAt"
+
+
+def test_apply_catalog_raises_on_ga_reports_list_override_mismatch():
+    """Stale catalog key_properties after a reports_list override must fail before sync."""
+
+    def schema_from_report(report: dict) -> dict:
+        props = [Property(dim, StringType, required=True) for dim in report["dimensions"]]
+        props.extend(Property(metric, StringType) for metric in report["metrics"])
+        props.extend(
+            (
+                Property("property_id", StringType, required=True),
+                Property("report_start_date", StringType, required=True),
+                Property("report_end_date", StringType, required=True),
+                Property("run_id", IntegerType, required=True),
+            )
+        )
+        return PropertiesList(*props).to_dict()
+
+    stale_report = {
+        "name": "traffic_sources",
+        "dimensions": ["date", "source", "medium", "sourcePlatform"],
+        "metrics": ["sessions"],
+    }
+    live_report = {
+        "name": "traffic_sources",
+        "dimensions": [
+            "date",
+            "sessionDefaultChannelGroup",
+            "sessionSource",
+            "sessionMedium",
+            "sessionCampaignName",
+            "newVsReturning",
+        ],
+        "metrics": ["sessions", "engagedSessions"],
+    }
+
+    class ReportStream(Stream):
+        name = "traffic_sources"
+        replication_key = "date"
+
+        def __init__(self, tap: Tap, report: dict):
+            self.report = report
+            super().__init__(tap, schema=schema_from_report(report), name=self.name)
+            self.primary_keys = list(report["dimensions"]) + ["property_id"]
+
+        def get_records(self, context: Optional[dict]) -> Iterable[Dict[str, Any]]:
+            return iter([])
+
+    class ReportTap(Tap):
+        name = "report-test-tap"
+        settings_jsonschema = PropertiesList().to_dict()
+
+        def discover_streams(self) -> List[Stream]:
+            return [ReportStream(self, live_report)]
+
+    tap = ReportTap(config={}, parse_env_config=False)
+    stream = cast(ReportStream, tap.load_streams()[0])
+    live_keys = list(stream.primary_keys)
+
+    stale_catalog = Catalog.from_dict(
+        {
+            "streams": [
+                {
+                    "tap_stream_id": "traffic_sources",
+                    "metadata": MetadataMapping(),
+                    "key_properties": [
+                        "date",
+                        "source",
+                        "medium",
+                        "sourcePlatform",
+                        "property_id",
+                    ],
+                    "stream": "traffic_sources",
+                    "schema": schema_from_report(stale_report),
+                    "replication_method": REPLICATION_INCREMENTAL,
+                    "replication_key": "date",
+                }
+            ]
+        }
+    )
+
+    with pytest.raises(CatalogKeyPropertiesMismatchError) as exc_info:
+        stream.apply_catalog(catalog=stale_catalog)
+
+    message = str(exc_info.value)
+    assert "traffic_sources" in message
+    for key in ("source", "medium", "sourcePlatform", "sessionSource", "newVsReturning"):
+        assert key in message
+    assert stream.primary_keys == live_keys
 
 
 def test_stream_respects_max_records_limit(monkeypatch):
