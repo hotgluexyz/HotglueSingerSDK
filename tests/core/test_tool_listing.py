@@ -8,9 +8,16 @@ import pytest
 from hotglue_singer_sdk.helpers.capabilities import TapCapabilities
 from hotglue_singer_sdk.streams.core import Stream
 from hotglue_singer_sdk.tap_base import Tap
-from hotglue_singer_sdk.tool_calls import (
+from hotglue_singer_sdk.tools.constants import (
+    DEFAULT_TOOL_CALL_RECORD_LIMIT,
+    MAX_TOOL_CALL_RECORD_LIMIT,
+    build_filter_value_input_schema_property,
+    get_limit_bounds,
+)
+from hotglue_singer_sdk.tools.listing import (
     build_tool_catalog_from_stream_types,
     build_tool_input_schema,
+    build_tool_output_schema,
     format_connector_label,
     resolve_stream_replication_key,
     stream_to_tool_descriptor,
@@ -18,7 +25,7 @@ from hotglue_singer_sdk.tool_calls import (
 from hotglue_singer_sdk.typing import DateTimeType, IntegerType, PropertiesList, Property
 
 CONFIG_START_DATE = "2021-01-01"
-MCP_TOOL_KEYS = frozenset({"name", "description", "inputSchema"})
+MCP_TOOL_KEYS = frozenset({"name", "description", "inputSchema", "outputSchema"})
 
 
 class ParentStream(Stream):
@@ -74,6 +81,19 @@ class FilteredStream(Stream):
                 }
             },
         }
+
+
+class LimitedStream(Stream):
+    name = "limited"
+    tool_call_default_record_limit = 5
+    tool_call_max_record_limit = 25
+    schema = ParentStream.schema
+
+    def __init__(self, tap: Tap) -> None:
+        super().__init__(tap, schema=self.schema, name=self.name)
+
+    def get_records(self, context: Optional[dict]):
+        yield {"id": 1}
 
 
 class SubFilteredStream(FilteredStream):
@@ -143,7 +163,7 @@ class ToolCallsTestTap(Tap):
             {
                 "name": "bills",
                 "description": "Query bills records from example",
-                "properties": ["replication_key_value"],
+                "properties": ["limit", "replication_key_value"],
                 "required": None,
                 "absent": ["filters", "context"],
                 "replication_key_in_description": "lastmodifieddate",
@@ -156,7 +176,7 @@ class ToolCallsTestTap(Tap):
             {
                 "name": "term",
                 "description": "Query term records from example",
-                "properties": [],
+                "properties": ["limit"],
                 "required": None,
                 "absent": ["filters", "context", "replication_key_value"],
             },
@@ -171,7 +191,7 @@ class ToolCallsTestTap(Tap):
                     "Query bill_lines records from example "
                     "(child of bills stream). Pass context copied from a bills record's child_context."
                 ),
-                "properties": ["context"],
+                "properties": ["limit", "context"],
                 "required": ["context"],
                 "absent": ["filters", "replication_key_value"],
                 "context_description_contains": "child_context",
@@ -184,7 +204,7 @@ class ToolCallsTestTap(Tap):
             {
                 "name": "vendor",
                 "description": "Query vendor records from example",
-                "properties": ["filters", "replication_key_value"],
+                "properties": ["limit", "filters", "replication_key_value"],
                 "required": None,
                 "absent": ["context"],
                 "filter_name": "vendor_id",
@@ -204,6 +224,7 @@ def test_stream_to_tool_descriptor(
     assert set(descriptor.keys()) == MCP_TOOL_KEYS
     assert descriptor["name"] == expected["name"]
     assert descriptor["description"] == expected["description"]
+    assert descriptor["outputSchema"] == build_tool_output_schema()
 
     schema = descriptor["inputSchema"]
     properties = schema["properties"]
@@ -220,6 +241,9 @@ def test_stream_to_tool_descriptor(
     if "filter_name" in expected:
         filter_schema = properties["filters"]["properties"][expected["filter_name"]]
         assert filter_schema["properties"]["operator"]["enum"] == expected["filter_operators"]
+        assert (
+            filter_schema["properties"]["value"] == build_filter_value_input_schema_property()
+        )
 
     if "replication_key_in_description" in expected:
         replication_key_description = properties["replication_key_value"]["description"]
@@ -234,6 +258,20 @@ def test_build_tool_input_schema_skips_empty_filter_definitions() -> None:
     schema = build_tool_input_schema(EmptyFiltersStream)
 
     assert "filters" not in schema["properties"]
+    assert "limit" in schema["properties"]
+
+
+def test_filter_value_schema_declares_portable_validation_keywords() -> None:
+    """Filter value schemas must include type constraints for MCP client portability."""
+    value_schema = build_filter_value_input_schema_property()
+    assert "anyOf" in value_schema
+    declared_types = {option["type"] for option in value_schema["anyOf"]}
+    assert declared_types == {"string", "number", "integer", "boolean", "array", "null"}
+
+    filter_value = build_tool_input_schema(FilteredStream)["properties"]["filters"][
+        "properties"
+    ]["vendor_id"]["properties"]["value"]
+    assert filter_value == value_schema
 
 
 def test_resolve_stream_replication_key() -> None:
@@ -241,6 +279,21 @@ def test_resolve_stream_replication_key() -> None:
     assert resolve_stream_replication_key(SubFilteredStream) == "lastmodifieddate"
     assert resolve_stream_replication_key(PlainStream) is None
     assert resolve_stream_replication_key(PropertyReplicationKeyStream) is None
+
+
+def test_get_limit_bounds_uses_sdk_defaults() -> None:
+    assert get_limit_bounds(PlainStream) == (
+        DEFAULT_TOOL_CALL_RECORD_LIMIT,
+        MAX_TOOL_CALL_RECORD_LIMIT,
+    )
+
+
+def test_get_limit_bounds_uses_stream_overrides() -> None:
+    assert get_limit_bounds(LimitedStream) == (5, 25)
+
+    limit_schema = build_tool_input_schema(LimitedStream)["properties"]["limit"]
+    assert limit_schema["default"] == 5
+    assert limit_schema["maximum"] == 25
 
 
 @pytest.mark.parametrize(

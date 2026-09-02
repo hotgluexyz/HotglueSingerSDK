@@ -339,7 +339,7 @@ class Stream(metaclass=abc.ABCMeta):
         start_date = self.get_config_start_date()
         rep_key = self.get_starting_timestamp(context)
 
-        if is_inclusive:
+        if is_inclusive and rep_key is not None:
             rep_key = rep_key + datetime.timedelta(seconds=1)
 
         # if stream has a minimum start time and start date or replication key is less than the minimum start time, return the minimum start time
