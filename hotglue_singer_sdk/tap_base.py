@@ -28,6 +28,8 @@ from hotglue_singer_sdk.helpers.capabilities import (
 from hotglue_singer_sdk.mapper import PluginMapper
 from hotglue_singer_sdk.plugin_base import PluginBase
 from hotglue_singer_sdk.streams import SQLStream, Stream
+from hotglue_singer_sdk.tools.execution import ToolExecutionError, execute_stream_tool
+from hotglue_singer_sdk.tools.listing import build_tool_catalog_from_stream_types
 # this import is used by taps, we need to fix those before removing it
 from hotglue_etl_exceptions import InvalidCredentialsError # noqa: F401
 
@@ -195,6 +197,7 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             TapCapabilities.CATALOG,
             TapCapabilities.STATE,
             TapCapabilities.DISCOVER,
+            TapCapabilities.TOOL_CALLS,
             PluginCapabilities.ABOUT,
             PluginCapabilities.STREAM_MAPS,
             PluginCapabilities.FLATTENING,
@@ -617,6 +620,95 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         sys.stdout.write(json.dumps(payload, indent=2))
         sys.stdout.flush()
 
+    def discover_stream_types(self) -> List[Type[Stream]]:
+        """Return stream classes for tool listing.
+
+        Taps with expensive stream initialization should override this method
+        to return stream classes without triggering schema or API setup.
+        """
+        return list(dict.fromkeys(type(stream) for stream in self.load_streams()))
+
+    def list_available_tools(self) -> None:
+        """Build MCP tool descriptors for all streams and print them to stdout."""
+        self.logger.info(f"Listing available tools for '{self.name}'.")
+        tools = build_tool_catalog_from_stream_types(self.discover_stream_types(), self.name)
+        sys.stdout.write(json.dumps(tools, indent=2))
+        sys.stdout.flush()
+
+    def execute_tool(self, tool_name: str, arguments: Optional[dict] = None) -> None:
+        """Execute an MCP-style stream tool and print the structured result to stdout."""
+        self.logger.info(f"Executing tool '{tool_name}' for '{self.name}'.")
+        try:
+            result = execute_stream_tool(
+                self,
+                tool_name,
+                arguments if arguments is not None else {},
+            )
+        except ToolExecutionError as ex:
+            Tap._cli_exit(self, str(ex), cause=ex)
+
+        sys.stdout.write(json.dumps(result, indent=2, default=str))
+        sys.stdout.flush()
+
+    @staticmethod
+    def _cli_exit(tap: "Tap", message: str, *, cause: Optional[BaseException] = None) -> None:
+        """Log a CLI error, print it to stderr, and exit."""
+        tap.logger.error(message)
+        sys.stderr.write(f"{message}\n")
+        sys.stderr.flush()
+        raise SystemExit(1) from cause
+
+    @staticmethod
+    def _run_cli_mode(
+        tap: "Tap",
+        *,
+        discover: bool,
+        catalog: Any,
+        state: Any,
+        test: CliTestOptionValue,
+        get_available_filters: bool,
+        list_tools: bool,
+        execute_tool: Optional[str],
+        tool_args: Any,
+    ) -> None:
+        """Dispatch tap execution based on CLI flags."""
+        if discover:
+            tap.register_streams_from_catalog(catalog)
+            tap.register_state_from_file(state)
+            tap.run_discovery()
+            if test == CliTestOptionValue.All.value:
+                tap.run_connection_test()
+            return
+
+        if get_available_filters:
+            tap.get_available_filters(catalog)
+            return
+
+        if list_tools:
+            tap.list_available_tools()
+            return
+
+        if tool_args and not execute_tool:
+            Tap._cli_exit(tap, "--tool-args requires --execute-tool.")
+
+        if execute_tool is not None:
+            if not execute_tool:
+                Tap._cli_exit(tap, "--execute-tool requires a non-empty tool name.")
+
+            arguments = read_json_file(tool_args) if tool_args else {}
+            tap.execute_tool(execute_tool, arguments)
+            return
+
+        if test == CliTestOptionValue.All.value:
+            tap.run_connection_test()
+            return
+
+        if test == CliTestOptionValue.Schema.value:
+            tap.write_schemas()
+            return
+
+        tap.run_sync(catalog=catalog, state=state)
+
     @classproperty
     def cli(cls) -> Callable:
         """Execute standard CLI handler for taps.
@@ -668,6 +760,20 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             is_flag=True,
         )
         @click.option(
+            "--list-tools",
+            help="List MCP-style tools (one per stream).",
+            is_flag=True,
+        )
+        @click.option(
+            "--execute-tool",
+            help="Execute an MCP-style stream tool by name.",
+        )
+        @click.option(
+            "--tool-args",
+            help="JSON file with arguments for --execute-tool.",
+            type=click.Path(),
+        )
+        @click.option(
             "--selected-filters",
             help="Selected filters file location.",
             type=click.Path(),
@@ -687,6 +793,9 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             format: str = None,
             access_token: bool = False,
             get_available_filters: bool = False,
+            list_tools: bool = False,
+            execute_tool: str = None,
+            tool_args: str = None,
             selected_filters: str = None,
         ) -> None:
             """Handle command line execution.
@@ -752,20 +861,17 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             if access_token:
                 return cls.fetch_access_token(connector=tap)
 
-            if discover:
-                tap.register_streams_from_catalog(catalog)
-                tap.register_state_from_file(state)
-                tap.run_discovery()
-                if test == CliTestOptionValue.All.value:
-                    tap.run_connection_test()
-            elif get_available_filters:
-                tap.get_available_filters(catalog)
-            elif test == CliTestOptionValue.All.value:
-                tap.run_connection_test()
-            elif test == CliTestOptionValue.Schema.value:
-                tap.write_schemas()
-            else:
-                tap.run_sync(catalog=catalog, state=state)
+            cls._run_cli_mode(
+                tap,
+                discover=discover,
+                catalog=catalog,
+                state=state,
+                test=test,
+                get_available_filters=get_available_filters,
+                list_tools=list_tools,
+                execute_tool=execute_tool,
+                tool_args=tool_args,
+            )
 
         return cli
 
