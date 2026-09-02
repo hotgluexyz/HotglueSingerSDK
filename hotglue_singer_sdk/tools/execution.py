@@ -188,13 +188,14 @@ def collect_tool_records(
             break
 
         if isinstance(record_result, tuple):
-            record = record_result[0]
+            record, yielded_child_context = record_result
         else:
             record = record_result
+            yielded_child_context = None
 
         output_record = dict(record)
         if attach_child_context:
-            output_record["child_context"] = stream.get_child_context(record, None)
+            output_record["child_context"] = stream.get_child_context(record, yielded_child_context)
 
         records.append(output_record)
 

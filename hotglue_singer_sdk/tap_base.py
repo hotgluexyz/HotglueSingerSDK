@@ -645,13 +645,18 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
                 arguments if arguments is not None else {},
             )
         except ToolExecutionError as ex:
-            self.logger.error(str(ex))
-            sys.stderr.write(f"{ex}\n")
-            sys.stderr.flush()
-            raise SystemExit(1) from ex
+            Tap._cli_exit(self, str(ex), cause=ex)
 
         sys.stdout.write(json.dumps(result, indent=2, default=str))
         sys.stdout.flush()
+
+    @staticmethod
+    def _cli_exit(tap: "Tap", message: str, *, cause: Optional[BaseException] = None) -> None:
+        """Log a CLI error, print it to stderr, and exit."""
+        tap.logger.error(message)
+        sys.stderr.write(f"{message}\n")
+        sys.stderr.flush()
+        raise SystemExit(1) from cause
 
     @staticmethod
     def _run_cli_mode(
@@ -683,7 +688,13 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
             tap.list_available_tools()
             return
 
-        if execute_tool:
+        if tool_args and not execute_tool:
+            Tap._cli_exit(tap, "--tool-args requires --execute-tool.")
+
+        if execute_tool is not None:
+            if not execute_tool:
+                Tap._cli_exit(tap, "--execute-tool requires a non-empty tool name.")
+
             arguments = read_json_file(tool_args) if tool_args else {}
             tap.execute_tool(execute_tool, arguments)
             return

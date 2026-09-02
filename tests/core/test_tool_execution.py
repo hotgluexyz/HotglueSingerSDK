@@ -6,7 +6,7 @@ from typing import List, Optional
 import pytest
 
 from hotglue_singer_sdk.streams.core import Stream
-from hotglue_singer_sdk.tap_base import Tap
+from hotglue_singer_sdk.tap_base import CliTestOptionValue, Tap
 from hotglue_singer_sdk.tools.execution import (
     ToolExecutionError,
     build_selected_filters_from_tool_args,
@@ -50,6 +50,22 @@ class FilterTrackingStream(FilteredStream):
 
     def setup_selected_filters(self) -> None:
         self.setup_selected_filters_called = True
+
+
+class TupleChildContextStream(Stream):
+    name = "tuple_parent"
+    schema = ParentStream.schema
+
+    def __init__(self, tap: Tap) -> None:
+        super().__init__(tap, schema=self.schema, name=self.name)
+
+    def get_records(self, context: Optional[dict]):
+        yield ({"id": 1, "lastmodifieddate": "2021-01-01"}, {"ids": ["from_tuple"]})
+
+    def get_child_context(self, record: dict, context: Optional[dict]) -> dict:
+        if context is not None:
+            return context
+        return {"ids": [record["id"]]}
 
 
 class ExecutionTestTap(Tap):
@@ -118,6 +134,61 @@ def test_collect_tool_records_attaches_child_context() -> None:
 
     assert records == [{"id": 1, "lastmodifieddate": "2021-01-01", "child_context": {"ids": [1]}}]
     assert truncated is False
+
+
+def test_collect_tool_records_preserves_tuple_child_context() -> None:
+    tap = ExecutionTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
+    stream = TupleChildContextStream(tap)
+
+    records, truncated = collect_tool_records(
+        stream,
+        None,
+        limit=10,
+        attach_child_context=True,
+    )
+
+    assert records == [
+        {
+            "id": 1,
+            "lastmodifieddate": "2021-01-01",
+            "child_context": {"ids": ["from_tuple"]},
+        }
+    ]
+    assert truncated is False
+
+
+def test_run_cli_mode_rejects_tool_args_without_execute_tool() -> None:
+    tap = ToolCallsTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
+
+    with pytest.raises(SystemExit):
+        Tap._run_cli_mode(
+            tap,
+            discover=False,
+            catalog=None,
+            state=None,
+            test=CliTestOptionValue.Disabled.value,
+            get_available_filters=False,
+            list_tools=False,
+            execute_tool=None,
+            tool_args="args.json",
+        )
+
+
+def test_run_cli_mode_rejects_empty_execute_tool() -> None:
+    tap = ToolCallsTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
+
+    with pytest.raises(SystemExit):
+        Tap._run_cli_mode(
+            tap,
+            discover=False,
+            catalog=None,
+            state=None,
+            test=CliTestOptionValue.Disabled.value,
+            get_available_filters=False,
+            list_tools=False,
+            execute_tool="",
+            tool_args=None,
+        )
 
 
 def test_collect_tool_records_respects_limit() -> None:
