@@ -43,13 +43,32 @@ def _stream_class_has_children(
     )
 
 
+def _get_available_filters(stream_cls: Type[Stream]) -> Dict[str, Any]:
+    """Return named filter metadata for a stream class."""
+    listing = _StreamToolListingStub(stream_cls)
+    metadata = listing.get_available_filters_metadata()
+    if not isinstance(metadata, dict):
+        raise ToolExecutionError(f"Stream '{stream_cls.name}' does not support filters.")
+    return metadata.get("filters") or {}
+
+
+def _resolve_filter_target_field(filter_name: str, available_filters: Dict[str, Any]) -> str:
+    """Map a user-facing filter name to its SQL target_field."""
+    filter_meta = available_filters.get(filter_name) or {}
+    target_field = filter_meta.get("target_field")
+    if not isinstance(target_field, str) or not target_field:
+        raise ToolExecutionError(f"Filter '{filter_name}' is missing target_field metadata.")
+    return target_field
+
+
 def build_selected_filters_from_tool_args(
-    stream_name: str,
+    stream_cls: Type[Stream],
     filters: Dict[str, Any],
     *,
     filters_version: str,
 ) -> Dict[str, Any]:
     """Translate named tool filters into selected-filters.json shape."""
+    available_filters = _get_available_filters(stream_cls)
     stream_filters: Dict[str, Any] = {}
     for index, (filter_name, filter_def) in enumerate(filters.items(), start=1):
         if index > 1:
@@ -62,7 +81,7 @@ def build_selected_filters_from_tool_args(
         if not isinstance(operator, str) or not operator:
             raise ToolExecutionError(f"Filter '{filter_name}' is missing a valid operator.")
         clause: Dict[str, Any] = {
-            "field": filter_name,
+            "field": _resolve_filter_target_field(filter_name, available_filters),
             "operator": operator,
         }
         if "value" in filter_def:
@@ -71,7 +90,7 @@ def build_selected_filters_from_tool_args(
 
     return {
         "filters_version": filters_version,
-        "streams": {stream_name: stream_filters},
+        "streams": {stream_cls.name: stream_filters},
     }
 
 
@@ -80,12 +99,7 @@ def _validate_filter_arguments(
     filters: Dict[str, Any],
 ) -> None:
     """Validate named filter keys and operators against stream metadata."""
-    listing = _StreamToolListingStub(stream_cls)
-    metadata = listing.get_available_filters_metadata()
-    if not isinstance(metadata, dict):
-        raise ToolExecutionError(f"Stream '{stream_cls.name}' does not support filters.")
-
-    available_filters = metadata.get("filters") or {}
+    available_filters = _get_available_filters(stream_cls)
     for filter_name, filter_def in filters.items():
         if filter_name not in available_filters:
             raise ToolExecutionError(f"Unknown filter '{filter_name}' for stream '{stream_cls.name}'.")
@@ -223,7 +237,7 @@ def execute_stream_tool(
     filters = arguments.get("filters")
     if filters:
         tap._selected_filters = build_selected_filters_from_tool_args(
-            stream_cls.name,
+            stream_cls,
             filters,
             filters_version=tap.available_filters_version,
         )

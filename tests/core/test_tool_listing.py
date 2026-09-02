@@ -78,7 +78,12 @@ class FilteredStream(Stream):
                     "label": "Vendor ID",
                     "supported_operators": ["EQ", "IN"],
                     "target_field": "v.id",
-                }
+                },
+                "status": {
+                    "label": "Status",
+                    "supported_operators": ["IN"],
+                    "target_field": "v.status",
+                },
             },
         }
 

@@ -68,7 +68,7 @@ class ExecutionTestTap(Tap):
 
 def test_build_selected_filters_from_tool_args() -> None:
     payload = build_selected_filters_from_tool_args(
-        "vendor",
+        FilteredStream,
         {
             "vendor_id": {"operator": "EQ", "value": "123"},
             "status": {"operator": "IN", "value": ["Open"]},
@@ -79,13 +79,13 @@ def test_build_selected_filters_from_tool_args() -> None:
     assert payload["filters_version"] == "1.0.0"
     stream_filters = payload["streams"]["vendor"]
     assert stream_filters["clause_1"] == {
-        "field": "vendor_id",
+        "field": "v.id",
         "operator": "EQ",
         "value": "123",
     }
     assert stream_filters["operator_1"] == "AND"
     assert stream_filters["clause_2"] == {
-        "field": "status",
+        "field": "v.status",
         "operator": "IN",
         "value": ["Open"],
     }
@@ -170,7 +170,7 @@ def test_execute_stream_tool_applies_named_filters() -> None:
     )
 
     assert tap._selected_filters is not None
-    assert tap._selected_filters["streams"]["vendor"]["clause_1"]["field"] == "vendor_id"
+    assert tap._selected_filters["streams"]["vendor"]["clause_1"]["field"] == "v.id"
     assert FilterTrackingStream._last_instance is not None
     assert FilterTrackingStream._last_instance.setup_selected_filters_called is True
 
