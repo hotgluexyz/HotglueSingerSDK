@@ -205,6 +205,17 @@ def test_execute_stream_tool_rejects_invalid_filter_operator() -> None:
         )
 
 
+def test_execute_stream_tool_rejects_missing_filter_value() -> None:
+    tap = ExecutionTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
+
+    with pytest.raises(ToolExecutionError, match="Filter 'vendor_id' is missing a value"):
+        execute_stream_tool(
+            tap,
+            "vendor",
+            {"filters": {"vendor_id": {"operator": "IN"}}},
+        )
+
+
 def test_execute_stream_tool_unknown_filter() -> None:
     tap = ExecutionTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
 

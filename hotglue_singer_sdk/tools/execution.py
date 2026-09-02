@@ -100,6 +100,8 @@ def _validate_filter_arguments(
                 f"Filter '{filter_name}' operator '{operator}' is not supported. "
                 f"Supported operators: {', '.join(supported_operators)}."
             )
+        if "value" not in filter_def:
+            raise ToolExecutionError(f"Filter '{filter_name}' is missing a value.")
 
 
 def validate_tool_arguments(
