@@ -183,6 +183,10 @@ def collect_tool_records(
     truncated = False
 
     for record_result in stream.get_records(context):
+        if len(records) >= limit:
+            truncated = True
+            break
+
         if isinstance(record_result, tuple):
             record = record_result[0]
         else:
@@ -193,9 +197,6 @@ def collect_tool_records(
             output_record["child_context"] = stream.get_child_context(record, None)
 
         records.append(output_record)
-        if len(records) >= limit:
-            truncated = True
-            break
 
     return records, truncated
 

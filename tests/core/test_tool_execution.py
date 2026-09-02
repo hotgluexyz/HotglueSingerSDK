@@ -130,6 +130,23 @@ def test_collect_tool_records_respects_limit() -> None:
     assert truncated is True
 
 
+def test_collect_tool_records_not_truncated_at_exact_limit() -> None:
+    tap = ExecutionTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
+    stream = ManyRecordsStream(tap)
+
+    records, truncated = collect_tool_records(stream, None, limit=5, attach_child_context=False)
+
+    assert len(records) == 5
+    assert truncated is False
+
+
+def test_execute_stream_tool_rejects_non_object_arguments() -> None:
+    tap = ToolCallsTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
+
+    with pytest.raises(ToolExecutionError, match="Tool arguments must be a JSON object"):
+        execute_stream_tool(tap, "bills", [])
+
+
 def test_execute_stream_tool_parent_includes_child_context() -> None:
     tap = ToolCallsTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
 

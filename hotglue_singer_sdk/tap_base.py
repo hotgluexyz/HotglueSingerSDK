@@ -639,7 +639,11 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         """Execute an MCP-style stream tool and print the structured result to stdout."""
         self.logger.info(f"Executing tool '{tool_name}' for '{self.name}'.")
         try:
-            result = execute_stream_tool(self, tool_name, arguments or {})
+            result = execute_stream_tool(
+                self,
+                tool_name,
+                arguments if arguments is not None else {},
+            )
         except ToolExecutionError as ex:
             self.logger.error(str(ex))
             sys.stderr.write(f"{ex}\n")
