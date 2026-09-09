@@ -23,7 +23,6 @@ from hotglue_singer_sdk.streams import Stream as RESTStreamBase
 from hotglue_etl_exceptions import InvalidCredentialsError
 
 import threading
-import re
 
 _token_lock = threading.Lock()
 
