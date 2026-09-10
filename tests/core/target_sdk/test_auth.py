@@ -11,6 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from freezegun import freeze_time
+from hotglue_etl_exceptions import InvalidCredentialsError
+from requests import HTTPError
 
 from hotglue_singer_sdk.target_sdk.auth import OAuthAuthenticator
 
@@ -111,6 +113,7 @@ def test_target_oauth_hg_api_refresh_requires_env(
         auth._update_access_token_via_hg_api()
 
 
+@freeze_time("1970-01-01 00:16:40")
 def test_target_oauth_local_refresh_when_hg_flag_false(
     target_with_config_file,
     monkeypatch,
@@ -140,5 +143,145 @@ def test_target_oauth_local_refresh_when_hg_flag_false(
 
     assert t._config["access_token"] == "local-token"
     assert t._config["refresh_token"] == "local-refresh"
+    assert t._config["expires_in"] == 1000 + 3600
     assert mfetch.call_count == 0
     assert mpost.call_count == 1
+
+
+@freeze_time("1970-01-01 00:16:40")
+@pytest.mark.parametrize(
+    "oauth_response_expires_in,default_expiration,expected_relative",
+    [
+        (123, None, 123),
+        (123, 234, 123),
+        (None, 234, 234),
+        (None, None, None),
+    ],
+    ids=[
+        "expires-in-and-no-default-expiration",
+        "expires-in-and-default-expiration",
+        "no-expires-in-and-default-expiration",
+        "no-expires-in-and-no-default-expiration",
+    ],
+)
+def test_target_oauth_local_refresh_expires_in_handling(
+    target_config,
+    oauth_response_expires_in,
+    default_expiration,
+    expected_relative,
+):
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": False})
+    response = {"access_token": "local-token"}
+    if oauth_response_expires_in is not None:
+        response["expires_in"] = oauth_response_expires_in
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = response
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post", return_value=mock_response):
+        auth = OAuthAuthenticator(
+            t,
+            auth_endpoint="https://oauth.example.com/token",
+            default_expiration=default_expiration,
+        )
+        auth._update_access_token_locally()
+
+    if expected_relative is None:
+        assert t._config["expires_in"] is None
+    else:
+        assert t._config["expires_in"] == 1000 + expected_relative
+    assert t._config["refresh_token"] == "ref-1"
+
+
+def test_target_oauth_local_refresh_keeps_refresh_token_when_not_rotated(target_config):
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": False})
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "access_token": "local-token",
+        "expires_in": 3600,
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post", return_value=mock_response):
+        auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+        auth._update_access_token_locally()
+
+    assert t._config["access_token"] == "local-token"
+    assert t._config["refresh_token"] == "ref-1"
+
+
+def test_target_oauth_local_refresh_raises_invalid_credentials(target_config):
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": False})
+    mock_response = MagicMock()
+    mock_response.status_code = 400
+    mock_response.text = "invalid_grant"
+    mock_response.json.return_value = {"error": "invalid_grant"}
+    mock_response.raise_for_status.side_effect = HTTPError("400 Client Error")
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post", return_value=mock_response):
+        auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+        with pytest.raises(InvalidCredentialsError):
+            auth._update_access_token_locally()
+
+    assert auth.state["auth_error_response"] == {"error": "invalid_grant"}
+
+
+def test_target_oauth_local_refresh_skips_config_write_without_path(target_config):
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": False})
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "access_token": "local-token",
+        "expires_in": 3600,
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post", return_value=mock_response):
+        auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+        auth._update_access_token_locally()
+
+    assert t._config["access_token"] == "local-token"
+
+
+def test_is_token_valid_false_until_refreshed(target_config):
+    auth = OAuthAuthenticator(
+        _FakeTarget(target_config),
+        auth_endpoint="https://oauth.example.com/token",
+    )
+    assert auth.is_token_valid() is False
+
+
+@freeze_time("1970-01-01 00:16:40")
+def test_is_token_valid_true_without_expires_in_after_refresh(target_config):
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": False})
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"access_token": "local-token"}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post", return_value=mock_response):
+        auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+        auth._update_access_token_locally()
+
+    assert auth.last_refreshed is not None
+    assert auth.expires_in is None
+    assert auth.is_token_valid() is True
+
+
+@freeze_time("1970-01-01 00:16:40")
+def test_is_token_valid_respects_expires_in_buffer(target_config):
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": False})
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"access_token": "local-token", "expires_in": 60}
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post", return_value=mock_response):
+        auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+        auth._update_access_token_locally()
+
+    # expires at 1060; now is 1000; remaining 60 < 120 buffer
+    assert auth.is_token_valid() is False
