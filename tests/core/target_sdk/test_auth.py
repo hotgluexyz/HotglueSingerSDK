@@ -113,6 +113,88 @@ def test_target_oauth_hg_api_refresh_requires_env(
         auth._update_access_token_via_hg_api()
 
 
+def test_target_oauth_does_not_fall_back_on_other_hg_refresh_errors(
+    target_config,
+    monkeypatch,
+):
+    """Non-unsupported HG failures must not fall back to local refresh."""
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": True})
+    auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+
+    def fail_hg_refresh() -> None:
+        raise RuntimeError("Hotglue access token refresh was not successful: boom")
+
+    monkeypatch.setattr(auth, "_update_access_token_via_hg_api", fail_hg_refresh)
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post") as mpost:
+        with pytest.raises(RuntimeError, match="not successful"):
+            auth.update_access_token()
+
+    assert mpost.call_count == 0
+
+
+@pytest.mark.parametrize(
+    "hg_error",
+    [
+        "Connector doesn't support get access token",
+        "This target does not support real time",
+        "Missing required env vars for Hotglue access token refresh: ENV_ID, FLOW",
+    ],
+)
+def test_target_oauth_falls_back_to_local_when_hg_unsupported(
+    target_config,
+    monkeypatch,
+    caplog,
+    hg_error,
+):
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": True})
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "access_token": "local-token",
+        "expires_in": 3600,
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post", return_value=mock_response) as mpost:
+        auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+
+        def fail_hg_refresh() -> None:
+            raise RuntimeError(hg_error)
+
+        monkeypatch.setattr(auth, "_update_access_token_via_hg_api", fail_hg_refresh)
+        with caplog.at_level(logging.WARNING):
+            auth.update_access_token()
+
+    assert t._config["access_token"] == "local-token"
+    assert mpost.call_count == 1
+    assert "Failed to update access token via Hotglue API" in caplog.text
+    assert "Falling back to local refresh" in caplog.text
+
+
+def test_target_oauth_tries_hg_without_capability_check(target_config, monkeypatch):
+    """Targets without access_token_support still attempt the Hotglue API."""
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": True})
+    t.confirm_fetch_access_token_support = lambda: False
+
+    monkeypatch.setenv("API_URL", "https://api.hotglue.com")
+    monkeypatch.setenv("ENV_ID", "env-1")
+    monkeypatch.setenv("FLOW", "flow-1")
+    monkeypatch.setenv("TENANT", "tenant-1")
+    monkeypatch.setenv("TARGET", "salesforce-v3")
+    monkeypatch.setenv("API_KEY", "secret-key")
+
+    with patch(
+        "hotglue_singer_sdk.target_sdk.auth.fetch_access_token_from_hotglue_api",
+        return_value={"access_token": "hg-token", "expires_in": 3600},
+    ) as mfetch:
+        auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+        auth.update_access_token()
+
+    assert t._config["access_token"] == "hg-token"
+    mfetch.assert_called_once_with("salesforce-v3")
+
+
 @freeze_time("1970-01-01 00:16:40")
 def test_target_oauth_local_refresh_when_hg_flag_false(
     target_with_config_file,
