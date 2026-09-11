@@ -472,7 +472,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         Raises:
             RuntimeError: When OAuth login fails.
         """
-        fallbback_to_local_refresh_errors = ["Connector doesn't support get access token", "does not support real time"]
+        fallback_to_local_refresh_errors = ["Connector doesn't support get access token", "does not support real time"]
         if self.config.get("_refresh_token_via_hg_api", True) is True:
             try:
                 # check if access_token_support is available
@@ -480,7 +480,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
                     self._update_access_token_via_hg_api()
                     return
             except Exception as ex:
-                if any(error in str(ex) for error in fallbback_to_local_refresh_errors):
+                if any(error in str(ex) for error in fallback_to_local_refresh_errors):
                     self.logger.warning(f"Failed to update access token via Hotglue API: {ex}. Falling back to local refresh.")
                 else:
                     raise ex
