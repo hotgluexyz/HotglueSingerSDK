@@ -52,6 +52,11 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
     plugins.
     """
 
+    # When True, `--about` omits supported_streams. Set this on taps whose catalogs
+    # are generated dynamically at discover time (API-discovered objects, etc.).
+    # SQLTap sets this automatically.
+    dynamic_catalog: bool = False
+
     # Constructor
 
     def __init__(
@@ -208,6 +213,39 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
         if self.confirm_fetch_access_token_support():
             capabilities.append(PluginCapabilities.ALLOWS_FETCH_ACCESS_TOKEN)
         return capabilities
+
+    @classmethod
+    def _get_supported_stream_names(cls) -> List[str]:
+        """Return sorted unique stream names from discover_streams.
+
+        Instantiates the tap with an empty config and without validation so
+        `--about` can list static streams without credentials.
+        """
+        tap = cls(  # type: ignore[call-arg]
+            config={},
+            validate_config=False,
+            parse_env_config=False,
+        )
+        return sorted({stream.name for stream in tap.discover_streams()})
+
+    @classmethod
+    def _get_about_info(cls) -> Dict[str, Any]:
+        """Return capabilities and other tap metadata, including supported streams.
+
+        Omits ``supported_streams`` when ``dynamic_catalog`` is True, when
+        discovery fails (e.g. credentials required), or when discovery returns
+        no streams.
+        """
+        info = super()._get_about_info()
+        if cls.dynamic_catalog:
+            return info
+        try:
+            streams = cls._get_supported_stream_names()
+            if streams:
+                info["supported_streams"] = streams
+        except Exception:
+            pass
+        return info
 
     # Connection test:
 
@@ -882,6 +920,7 @@ class SQLTap(Tap):
 
     # Stream class used to initialize new SQL streams from their catalog declarations.
     default_stream_class: Type[SQLStream]
+    dynamic_catalog = True
 
     def __init__(
         self,
