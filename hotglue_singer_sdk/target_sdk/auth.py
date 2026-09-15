@@ -186,6 +186,7 @@ class OAuthAuthenticator(Authenticator):
             "Connector doesn't support get access token",
             "does not support real time",
             "Missing required env vars",
+            "Fetch access token support is not implemented",
         ]
         if self._config.get("_refresh_token_via_hg_api", True) is True:
             try:
