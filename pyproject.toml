@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "hotglue-singer-sdk"
-version = "1.0.45"
+version = "1.0.46"
 description = "A framework for building Singer taps and targets"
 authors = ["Hotglue Team and Contributors. Original work by Meltano Team and Contributors."]
 maintainers = ["Hotglue Team and Contributors"]
@@ -45,7 +45,7 @@ pendulum = [
 click = "~=8.0"
 PyJWT = "~=2.4"
 requests = "^2.25.1"
-cryptography = ">=3.4.6,<38.0.0"
+cryptography = ">=3.4.6"
 cffi = [
     { version = ">=1.17.0", python = ">=3.12,<3.14" },
     { version = ">=2.0.0", python = ">=3.14" },
