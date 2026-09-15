@@ -7,18 +7,19 @@ from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
 from hotglue_singer_sdk.helpers._state import write_starting_replication_value
 from hotglue_singer_sdk.streams.core import Stream
 from hotglue_singer_sdk.tools.constants import get_limit_bounds, resolve_tool_call_limit
+from hotglue_singer_sdk.tools.errors import ToolExecutionError
 from hotglue_singer_sdk.tools.listing import (
     _StreamToolListingStub,
     _parent_stream_name,
+)
+from hotglue_singer_sdk.tools.replication_key import (
+    coerce_tool_replication_key_value,
     resolve_stream_replication_key,
+    validate_replication_key_value_argument,
 )
 
 if TYPE_CHECKING:
     from hotglue_singer_sdk.tap_base import Tap
-
-
-class ToolExecutionError(Exception):
-    """Raised when tool validation or execution fails."""
 
 
 def _stream_class_for_tool_name(
@@ -144,8 +145,8 @@ def validate_tool_arguments(
         _validate_filter_arguments(stream_cls, filters)
 
     replication_key_value = arguments.get("replication_key_value")
-    if replication_key_value is not None and not isinstance(replication_key_value, str):
-        raise ToolExecutionError("'replication_key_value' must be a string when provided.")
+    if replication_key_value is not None:
+        validate_replication_key_value_argument(stream_cls, replication_key_value)
 
     limit = arguments.get("limit")
     if limit is not None:
@@ -164,11 +165,12 @@ def validate_tool_arguments(
 def _seed_replication_key_value(
     stream: Stream,
     context: Optional[dict],
-    replication_key_value: str,
+    replication_key_value: Any,
 ) -> None:
     """Write the tool-provided replication bookmark into stream state."""
     state = stream.get_context_state(context)
-    write_starting_replication_value(state, replication_key_value)
+    coerced = coerce_tool_replication_key_value(type(stream), replication_key_value)
+    write_starting_replication_value(state, coerced)
 
 
 def collect_tool_records(
@@ -249,7 +251,7 @@ def execute_stream_tool(
     limit = resolve_tool_call_limit(stream_cls, arguments.get("limit"))
 
     replication_key_value = arguments.get("replication_key_value")
-    if replication_key_value:
+    if replication_key_value is not None:
         _seed_replication_key_value(stream, context, replication_key_value)
 
     attach_child_context = _stream_class_has_children(stream_cls, stream_types)

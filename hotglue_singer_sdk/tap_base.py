@@ -28,7 +28,8 @@ from hotglue_singer_sdk.helpers.capabilities import (
 from hotglue_singer_sdk.mapper import PluginMapper
 from hotglue_singer_sdk.plugin_base import PluginBase
 from hotglue_singer_sdk.streams import SQLStream, Stream
-from hotglue_singer_sdk.tools.execution import ToolExecutionError, execute_stream_tool
+from hotglue_singer_sdk.tools.errors import ToolExecutionError
+from hotglue_singer_sdk.tools.execution import execute_stream_tool
 from hotglue_singer_sdk.tools.listing import build_tool_catalog_from_stream_types
 # this import is used by taps, we need to fix those before removing it
 from hotglue_etl_exceptions import InvalidCredentialsError # noqa: F401

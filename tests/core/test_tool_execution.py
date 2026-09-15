@@ -7,8 +7,8 @@ import pytest
 
 from hotglue_singer_sdk.streams.core import Stream
 from hotglue_singer_sdk.tap_base import CliTestOptionValue, Tap
+from hotglue_singer_sdk.tools.errors import ToolExecutionError
 from hotglue_singer_sdk.tools.execution import (
-    ToolExecutionError,
     build_selected_filters_from_tool_args,
     build_tool_result,
     collect_tool_records,
@@ -17,6 +17,7 @@ from hotglue_singer_sdk.tools.execution import (
 from hotglue_singer_sdk.typing import DateTimeType, IntegerType, PropertiesList, Property
 
 from tests.core.test_tool_listing import ChildStream, FilteredStream, ParentStream, ToolCallsTestTap
+from tests.core.test_tool_replication_key import EpochReplicationStream
 
 CONFIG_START_DATE = "2021-01-01"
 
@@ -79,6 +80,7 @@ class ExecutionTestTap(Tap):
             ChildStream(self),
             ManyRecordsStream(self),
             FilterTrackingStream(self),
+            EpochReplicationStream(self),
         ]
 
 
@@ -270,6 +272,15 @@ def test_execute_stream_tool_seeds_replication_key_value() -> None:
 
     stream = ParentStream(tap)
     assert stream.get_starting_replication_key_value(None) == "2024-01-01T00:00:00Z"
+
+
+def test_execute_stream_tool_coerces_integer_replication_key_value() -> None:
+    tap = ExecutionTestTap(config={"start_date": CONFIG_START_DATE}, parse_env_config=False)
+
+    execute_stream_tool(tap, "events", {"replication_key_value": "1699920969"})
+
+    stream = EpochReplicationStream(tap)
+    assert stream.get_starting_replication_key_value(None) == 1699920969
 
 
 def test_execute_stream_tool_rejects_invalid_limit() -> None:

@@ -9,6 +9,10 @@ from hotglue_singer_sdk.tools.constants import (
     build_filter_value_input_schema_property,
     build_limit_input_schema_property,
 )
+from hotglue_singer_sdk.tools.replication_key import (
+    build_replication_key_value_input_schema_property,
+    resolve_stream_replication_key,
+)
 
 
 class _StreamToolListingStub:
@@ -31,17 +35,6 @@ class _StreamToolListingStub:
 def _stream_overrides_filters_metadata(stream_cls: Type[Stream]) -> bool:
     """Return whether the stream class defines custom filter metadata."""
     return stream_cls.get_available_filters_metadata is not Stream.get_available_filters_metadata
-
-
-def resolve_stream_replication_key(stream_cls: Type[Stream]) -> Optional[str]:
-    """Return a stream class replication key when declared as a class attribute."""
-    for cls in stream_cls.__mro__:
-        if cls is Stream:
-            break
-        replication_key = cls.__dict__.get("replication_key")
-        if isinstance(replication_key, str):
-            return replication_key
-    return None
 
 
 def format_connector_label(connector_name: str) -> str:
@@ -140,12 +133,9 @@ def build_tool_input_schema(stream_cls: Type[Stream]) -> Dict[str, Any]:
             properties["filters"] = filters_schema
 
     if listing.replication_key:
-        properties["replication_key_value"] = {
-            "type": "string",
-            "description": (
-                f"Only return records where {listing.replication_key} is at or after this value."
-            ),
-        }
+        properties["replication_key_value"] = build_replication_key_value_input_schema_property(
+            stream_cls
+        )
 
     parent_stream_name = _parent_stream_name(stream_cls)
     if parent_stream_name:
