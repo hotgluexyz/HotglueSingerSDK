@@ -247,11 +247,49 @@ def test_oauth_authenticator_hg_access_token_refresh(
     assert requests_mock.last_request.headers["x-api-key"] == "secret-key"
 
 
+@pytest.mark.parametrize(
+    "hg_error",
+    [
+        "Connector doesn't support get access token",
+        "This target does not support real time",
+    ],
+)
 def test_oauth_authenticator_falls_back_to_local_when_hg_refresh_fails(
     rest_tap: Tap,
     requests_mock: requests_mock.Mocker,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    hg_error: str,
+):
+    rest_tap._config["_refresh_token_via_hg_api"] = True
+    monkeypatch.setattr(rest_tap, "confirm_fetch_access_token_support", lambda: True)
+
+    local_request = requests_mock.post(
+        "https://example.com/oauth",
+        json={"access_token": "local-token", "expires_in": 123},
+    )
+
+    authenticator = _FakeOAuthAuthenticator(
+        stream=rest_tap.streams["some_stream"],
+        auth_endpoint="https://example.com/oauth",
+    )
+
+    def fail_hg_refresh() -> None:
+        raise RuntimeError(hg_error)
+
+    monkeypatch.setattr(authenticator, "_update_access_token_via_hg_api", fail_hg_refresh)
+    authenticator.update_access_token()
+
+    assert rest_tap.config["access_token"] == "local-token"
+    assert local_request.call_count == 1
+    assert "Failed to update access token via Hotglue API" in caplog.text
+    assert "Falling back to local refresh" in caplog.text
+
+
+def test_oauth_authenticator_does_not_fall_back_on_other_hg_refresh_errors(
+    rest_tap: Tap,
+    requests_mock: requests_mock.Mocker,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     rest_tap._config["_refresh_token_via_hg_api"] = True
     monkeypatch.setattr(rest_tap, "confirm_fetch_access_token_support", lambda: True)
@@ -268,11 +306,11 @@ def test_oauth_authenticator_falls_back_to_local_when_hg_refresh_fails(
         stream=rest_tap.streams["some_stream"],
         auth_endpoint="https://example.com/oauth",
     )
-    authenticator.update_access_token()
 
-    assert rest_tap.config["access_token"] == "local-token"
-    assert local_request.call_count == 1
-    assert "Failed to update access token via Hotglue API" in caplog.text
+    with pytest.raises(RuntimeError, match="Missing required env vars"):
+        authenticator.update_access_token()
+
+    assert local_request.call_count == 0
 
 
 def test_oauth_authenticator_local_refresh_when_hg_flag_not_true(
