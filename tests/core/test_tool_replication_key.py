@@ -10,7 +10,7 @@ from hotglue_singer_sdk.tools.replication_key import (
     coerce_tool_replication_key_value,
     replication_key_value_kind,
 )
-from hotglue_singer_sdk.typing import DateTimeType, IntegerType, PropertiesList, Property
+from hotglue_singer_sdk.typing import IntegerType, PropertiesList, Property
 
 from tests.core.test_tool_listing import ParentStream
 
