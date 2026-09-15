@@ -302,6 +302,14 @@ def test_stream_starting_timestamp(
     assert get_starting_value(None) == expected_starting_value
 
 
+def test_get_starting_time_is_inclusive_without_bookmark(tap: SimpleTestTap) -> None:
+    """Inclusive mode should fall back to start_date when no bookmark exists."""
+    stream = tap.streams["test"]
+    assert stream.get_starting_time(None, is_inclusive=True) == pendulum.parse(
+        CONFIG_START_DATE
+    )
+
+
 @pytest.mark.parametrize(
     "path,content,result",
     [
