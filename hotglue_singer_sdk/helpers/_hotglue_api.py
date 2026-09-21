@@ -103,7 +103,7 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
         raise RuntimeError(
             "Hotglue access token refresh response did not include access_token."
         )
-    if token_json.get("expires_in") is None:
+    if "expires_in" not in token_json:
         raise RuntimeError(
             "Hotglue access token refresh response did not include expires_in."
         )
