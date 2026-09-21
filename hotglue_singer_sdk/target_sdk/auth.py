@@ -182,24 +182,14 @@ class OAuthAuthenticator(Authenticator):
         return False
 
     def update_access_token(self) -> None:
-        fallback_to_local_refresh_errors = [
-            "Connector doesn't support get access token",
-            "does not support real time",
-            "Missing required env vars",
-            "Fetch access token support is not implemented",
-        ]
         if self._config.get("_refresh_token_via_hg_api", True) is True:
             try:
                 self._update_access_token_via_hg_api()
                 return
             except Exception as ex:
-                if any(error in str(ex) for error in fallback_to_local_refresh_errors):
-                    self.logger.warning(
-                        f"Failed to update access token via Hotglue API: {ex}. "
-                        "Falling back to local refresh."
-                    )
-                else:
-                    raise
+                self.logger.warning(
+                    f"Failed to update access token via Hotglue API: {ex}"
+                )
         self._update_access_token_locally()
 
     def _update_access_token_via_hg_api(self) -> None:
