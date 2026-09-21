@@ -187,9 +187,7 @@ class OAuthAuthenticator(Authenticator):
                 self._update_access_token_via_hg_api()
                 return
             except Exception as ex:
-                self.logger.warning(
-                    f"Failed to update access token via Hotglue API: {ex}"
-                )
+                self.logger.warning(f"Failed to update access token via Hotglue API: {ex}")
         self._update_access_token_locally()
 
     def _update_access_token_via_hg_api(self) -> None:
