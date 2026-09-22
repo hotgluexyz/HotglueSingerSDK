@@ -205,6 +205,9 @@ class TapCapabilities(CapabilitiesEnum):
     #: feature in `MeltanoHub <https://hub.meltano.com/singer/docs#log-based>`_.
     LOG_BASED = "log-based"
 
+    #: Expose streams as MCP tools via ``--list-tools`` / ``--execute-tool``.
+    TOOL_CALLS = "tool-calls"
+
     #: Deprecated. Please use :attr:`~TapCapabilities.CATALOG` instead.
     PROPERTIES = "properties", "Please use CATALOG instead."
 
