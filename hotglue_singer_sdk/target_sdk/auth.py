@@ -1,13 +1,14 @@
 import json
 import os
 from abc import abstractmethod
-from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Type
 
 import logging
 import requests
 
+from hotglue_etl_exceptions import InvalidCredentialsError
 from hotglue_singer_sdk.helpers._hotglue_api import fetch_access_token_from_hotglue_api
+from hotglue_singer_sdk.helpers._util import utc_now
 import base64
 
 
@@ -61,7 +62,7 @@ class BasicAuthenticator(Authenticator):
     
     @classmethod
     def create_for_stream(
-        cls: type[Authenticator],
+        cls: Type[Authenticator],
         target,
         username: str,
         password: str,
@@ -134,11 +135,16 @@ class OAuthAuthenticator(Authenticator):
         target,
         state = {},
         auth_endpoint: Optional[str] = None,
+        default_expiration: Optional[int] = None,
     ) -> None:
         """Init authenticator.
         """
         super().__init__(target, state)
         self._auth_endpoint = auth_endpoint
+        self._default_expiration = default_expiration
+        self.access_token: Optional[str] = None
+        self.last_refreshed = None
+        self.expires_in: Optional[int] = None
 
     @property
     def auth_headers(self) -> dict:
@@ -159,26 +165,27 @@ class OAuthAuthenticator(Authenticator):
         }
 
     def is_token_valid(self) -> bool:
-        access_token = self._config.get("access_token")
-        now = round(datetime.utcnow().timestamp())
-        expires_in = self._config.get("expires_in")
-        if  expires_in is not None:
-            expires_in = int(expires_in)
-        if not access_token:
-            return False
+        """Check if token is valid.
 
-        if not expires_in:
-            return False
+        Returns:
+            True if the token is valid (fresh).
+        """
+        if self.expires_in is None and self._config.get("expires_in"):
+            self.expires_in = self._config.get("expires_in")
 
-        return not ((expires_in - now) < 120)
+        if self.last_refreshed is None:
+            return False
+        if not self.expires_in:
+            return True
+        if int(self.expires_in) - int(utc_now().timestamp()) > 120:
+            return True
+        return False
 
     def update_access_token(self) -> None:
         if self._config.get("_refresh_token_via_hg_api", True) is True:
             try:
-                # check if access_token_support is available
-                if self._target.confirm_fetch_access_token_support():
-                    self._update_access_token_via_hg_api()
-                    return
+                self._update_access_token_via_hg_api()
+                return
             except Exception as ex:
                 self.logger.warning(f"Failed to update access token via Hotglue API: {ex}")
         self._update_access_token_locally()
@@ -186,16 +193,19 @@ class OAuthAuthenticator(Authenticator):
     def _update_access_token_via_hg_api(self) -> None:
         """Update token from the Hotglue access token API endpoint."""
         connector_id = os.environ.get("TARGET")
+        request_time = utc_now()
         token_json = fetch_access_token_from_hotglue_api(connector_id)
         self.access_token = token_json["access_token"]
-        self.expires_in = int(token_json["expires_in"])
+        self.expires_in = int(token_json["expires_in"]) if token_json["expires_in"] is not None else None
+        self.last_refreshed = request_time
 
         self._config["access_token"] = self.access_token
         self._config["expires_in"] = self.expires_in
 
     def _update_access_token_locally(self) -> None:
+        request_time = utc_now()
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        self.logger.info(f"Oauth request - endpoint: {self._auth_endpoint}, body: {self.oauth_request_body}")
+        self.logger.info(f"Oauth request - endpoint: {self._auth_endpoint}")
         token_response = requests.post(
             self._auth_endpoint, data=self.oauth_request_body, headers=headers, timeout=300
         )
@@ -204,19 +214,35 @@ class OAuthAuthenticator(Authenticator):
             token_response.raise_for_status()
             self.logger.info("OAuth authorization attempt was successful.")
         except Exception as ex:
-            self.state.update({"auth_error_response": token_response.json()})
-            raise RuntimeError(
-                f"Failed OAuth login, response was '{token_response.json()}'. {ex}"
-            )
+            try:
+                self.state.update({"auth_error_response": token_response.json()})
+            except Exception:
+                self.state.update({"auth_error_response": token_response.text})
+            raise InvalidCredentialsError(
+                f"Failed OAuth login, response was '{token_response.text}'. {ex}"
+            ) from ex
 
         token_json = token_response.json()
         self.access_token = token_json["access_token"]
-
         self._config["access_token"] = token_json["access_token"]
-        self._config["refresh_token"] = token_json["refresh_token"]
-        now = round(datetime.utcnow().timestamp())
-        self._config["expires_in"] = int(token_json["expires_in"]) + now
 
-        with open(self._config_file_path, "w") as outfile:
-            json.dump(self._config, outfile, indent=4)
+        expires_in = token_json.get("expires_in", self._default_expiration)
+        if expires_in is None:
+            self.logger.debug(
+                "No expires_in received in OAuth response and no "
+                "default_expiration set. Token will be treated as if it never "
+                "expires."
+            )
+            self.expires_in = None
+        else:
+            self.expires_in = int(expires_in) + int(request_time.timestamp())
+        self.last_refreshed = request_time
+        self._config["expires_in"] = self.expires_in
+
+        if token_json.get("refresh_token"):
+            self._config["refresh_token"] = token_json["refresh_token"]
+
+        if self._config_file_path is not None:
+            with open(self._config_file_path, "w") as outfile:
+                json.dump(self._config, outfile, indent=4)
 
