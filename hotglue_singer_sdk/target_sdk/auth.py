@@ -182,12 +182,29 @@ class OAuthAuthenticator(Authenticator):
         return False
 
     def update_access_token(self) -> None:
+        # Only fall back for known "HG can't refresh for this TARGET" errors.
+        # Unknown API failures re-raise so we don't risk invalidating tokens locally.
+        # On the realtime path we use the connector's tap lambda to get the access token.
+        fallback_to_local_refresh_errors = [
+            "Connector doesn't support get access token",  # Tap CLI has no --access-token
+            "Fetch access token support is not implemented",  # No access_token_support
+            "does not support real time",  # No realtime tap/target lambda
+            "Missing required env vars",  # Local dev: ENV_ID/FLOW/TENANT/API_KEY/TARGET unset
+            "No available connector found for target",  # v1 TARGET→tap unable to resolve
+            "is not an available connector",  # v1 TARGET→tap unable to resolve
+        ]
         if self._config.get("_refresh_token_via_hg_api", True) is True:
             try:
                 self._update_access_token_via_hg_api()
                 return
             except Exception as ex:
-                self.logger.warning(f"Failed to update access token via Hotglue API: {ex}")
+                if any(error in str(ex) for error in fallback_to_local_refresh_errors):
+                    self.logger.warning(
+                        f"Failed to update access token via Hotglue API: {ex}. "
+                        "Falling back to local refresh."
+                    )
+                else:
+                    raise
         self._update_access_token_locally()
 
     def _update_access_token_via_hg_api(self) -> None:
