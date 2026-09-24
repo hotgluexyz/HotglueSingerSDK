@@ -49,10 +49,13 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
     plugins.
     """
 
-    # When True, `--about` omits supported_streams. Set this on taps whose catalogs
-    # are generated dynamically at discover time (API-discovered objects, etc.).
+    # When True, the catalog is built at discover time, so `--about` skips discovery.
     # SQLTap sets this automatically.
     dynamic_catalog: bool = False
+
+    # Stream names for `--about` to report instead of running discovery. Lets a tap
+    # with a dynamic catalog advertise known streams without credentials.
+    static_stream_names: Optional[List[str]] = None
 
     # Constructor
 
@@ -212,11 +215,18 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
 
     @classmethod
     def _get_supported_stream_names(cls) -> List[str]:
-        """Return sorted unique stream names from discover_streams.
+        """Return sorted unique stream names to report in `--about`.
 
-        Instantiates the tap with an empty config and without validation so
-        `--about` can list static streams without credentials.
+        Prefers ``static_stream_names``, returns nothing for a dynamic catalog, and
+        otherwise instantiates the tap with an empty config and without validation
+        so `--about` can list static streams without credentials.
         """
+        if cls.static_stream_names:
+            return sorted(set(cls.static_stream_names))
+
+        if cls.dynamic_catalog:
+            return []
+
         tap = cls(  # type: ignore[call-arg]
             config={},
             validate_config=False,
@@ -228,19 +238,22 @@ class Tap(PluginBase, metaclass=abc.ABCMeta):
     def _get_about_info(cls) -> Dict[str, Any]:
         """Return capabilities and other tap metadata, including supported streams.
 
-        Omits ``supported_streams`` when ``dynamic_catalog`` is True, when
-        discovery fails (e.g. credentials required), or when discovery returns
-        no streams.
+        Omits ``supported_streams`` when no stream names are known, or when
+        resolving them fails (e.g. credentials required). Failures are logged
+        rather than raised, so `--about` stays usable for every tap.
         """
         info = super()._get_about_info()
-        if cls.dynamic_catalog:
-            return info
         try:
             streams = cls._get_supported_stream_names()
-            if streams:
-                info["supported_streams"] = streams
-        except Exception:
-            pass
+        except Exception as ex:
+            cls.logger.warning(
+                "Could not determine supported streams for `--about`: %s: %s",
+                type(ex).__name__,
+                ex,
+            )
+            return info
+        if streams:
+            info["supported_streams"] = streams
         return info
 
     # Connection test:
