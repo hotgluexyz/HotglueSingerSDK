@@ -113,12 +113,32 @@ def test_target_oauth_hg_api_refresh_requires_env(
         auth._update_access_token_via_hg_api()
 
 
-def test_target_oauth_falls_back_to_local_on_any_hg_error(
+def test_target_oauth_does_not_fall_back_on_other_hg_refresh_errors(
+    target_config,
+    monkeypatch,
+):
+    """Unknown HG failures must not fall back to local refresh."""
+    t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": True})
+    auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
+
+    def fail_hg_refresh() -> None:
+        raise RuntimeError("NOT_ALLOWLISTED: Hotglue access token refresh was not successful: boom")
+
+    monkeypatch.setattr(auth, "_update_access_token_via_hg_api", fail_hg_refresh)
+
+    with patch("hotglue_singer_sdk.target_sdk.auth.requests.post") as mpost:
+        with pytest.raises(RuntimeError, match="not successful"):
+            auth.update_access_token()
+
+    assert mpost.call_count == 0
+
+
+def test_target_oauth_falls_back_to_local_when_hg_unsupported(
     target_config,
     monkeypatch,
     caplog,
 ):
-    """Any HG access-token failure falls back to local refresh (same as tap)."""
+    """Allowlisted HG failures fall back to local refresh."""
     t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": True})
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -134,7 +154,7 @@ def test_target_oauth_falls_back_to_local_on_any_hg_error(
         auth = OAuthAuthenticator(t, auth_endpoint="https://oauth.example.com/token")
 
         def fail_hg_refresh() -> None:
-            raise RuntimeError("Hotglue access token refresh was not successful: boom")
+            raise RuntimeError("ALLOWLISTED: Missing required env vars for Hotglue access token refresh: ENV_ID, FLOW")
 
         monkeypatch.setattr(auth, "_update_access_token_via_hg_api", fail_hg_refresh)
         with caplog.at_level(logging.WARNING):
@@ -143,6 +163,7 @@ def test_target_oauth_falls_back_to_local_on_any_hg_error(
     assert t._config["access_token"] == "local-token"
     assert mpost.call_count == 1
     assert "Failed to update access token via Hotglue API" in caplog.text
+    assert "Falling back to local refresh" in caplog.text
 
 
 def test_target_oauth_tries_hg_without_capability_check(target_config, monkeypatch):
