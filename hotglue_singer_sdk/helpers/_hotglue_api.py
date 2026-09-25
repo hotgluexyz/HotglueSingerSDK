@@ -8,10 +8,35 @@ from typing import Any
 
 import backoff
 import requests
+from hotglue_etl_exceptions import InvalidCredentialsError
 
 from hotglue_singer_sdk.exceptions import RetriableAPIError
 
 logger = logging.getLogger(__name__)
+
+_CREDENTIAL_ERROR_CODES = ("InvalidCredentialsError",)
+_CREDENTIAL_ERROR_MESSAGE_MARKERS = ("Failed OAuth login", "invalid_grant")
+
+
+def _credential_error_message(response: requests.Response | None) -> str | None:
+    """Return the upstream error message when a failed response is a credential error."""
+    if response is None:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    code = body.get("Code") or body.get("code") or ""
+    message = body.get("Message") or body.get("message") or ""
+    code = code if isinstance(code, str) else ""
+    message = message if isinstance(message, str) else ""
+    if code in _CREDENTIAL_ERROR_CODES or any(
+        marker in message for marker in _CREDENTIAL_ERROR_MESSAGE_MARKERS
+    ):
+        return message or "Invalid credentials for this connection."
+    return None
 
 
 @backoff.on_exception(
@@ -54,6 +79,8 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
         may include refresh_token etc.).
 
     Raises:
+        InvalidCredentialsError: If the access token API reports that the
+            connection's credentials are invalid or expired.
         RuntimeError: If required env vars or connector_id are missing, or
             the API request fails or response is invalid.
     """
@@ -89,9 +116,23 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
     try:
         token_response = _get_access_token_response(endpoint, api_key)
     except (RetriableAPIError, requests.HTTPError) as ex:
+        response_text = ex.response.text if ex.response is not None else ""
+        credential_error = _credential_error_message(ex.response)
+        if credential_error:
+            logger.warning(
+                "Hotglue access token refresh failed with invalid credentials for "
+                "env_id=%s flow=%s tenant=%s connector_id=%s. Response was '%s'. %s",
+                env_id,
+                flow_id,
+                tenant,
+                connector_id,
+                response_text,
+                ex,
+            )
+            raise InvalidCredentialsError(credential_error) from ex
         raise RuntimeError(
             f"Failed Hotglue access token refresh, response was "
-            f"'{ex.response.text if ex.response is not None else ''}'. {ex}"
+            f"'{response_text}'. {ex}"
         ) from ex
 
     token_json = token_response.json()
