@@ -302,3 +302,29 @@ def test_fetch_access_token_non_credential_client_error_stays_runtime_error(monk
     assert not isinstance(excinfo.value, InvalidCredentialsError)
     # authenticators.update_access_token matches this text to fall back to local refresh
     assert "Connector doesn't support get access token" in str(excinfo.value)
+
+
+def test_fetch_access_token_non_string_code_still_matches_message(monkeypatch):
+    """Classifies on Message even when Code is not a string (e.g. numeric 400)."""
+    _credential_error_env(monkeypatch)
+    mock_response = _error_response(
+        400, {"Code": 400, "Message": "Failed OAuth login, response was 'invalid_grant'"}
+    )
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
+        mget.return_value = mock_response
+        with pytest.raises(InvalidCredentialsError, match="Failed OAuth login"):
+            fetch_access_token_from_hotglue_api("c1")
+
+
+def test_fetch_access_token_non_string_message_still_matches_code(monkeypatch):
+    """Classifies on Code even when Message is not a string."""
+    _credential_error_env(monkeypatch)
+    mock_response = _error_response(
+        401, {"Code": "InvalidCredentialsError", "Message": {"nested": "object"}}
+    )
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
+        mget.return_value = mock_response
+        with pytest.raises(InvalidCredentialsError, match="Invalid credentials for this connection"):
+            fetch_access_token_from_hotglue_api("c1")

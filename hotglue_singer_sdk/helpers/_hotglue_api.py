@@ -30,8 +30,8 @@ def _credential_error_message(response: requests.Response | None) -> str | None:
         return None
     code = body.get("Code") or body.get("code") or ""
     message = body.get("Message") or body.get("message") or ""
-    if not isinstance(code, str) or not isinstance(message, str):
-        return None
+    code = code if isinstance(code, str) else ""
+    message = message if isinstance(message, str) else ""
     if code in _CREDENTIAL_ERROR_CODES or any(
         marker in message for marker in _CREDENTIAL_ERROR_MESSAGE_MARKERS
     ):
