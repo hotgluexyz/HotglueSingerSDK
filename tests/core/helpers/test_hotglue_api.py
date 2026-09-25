@@ -2,13 +2,36 @@
 
 from __future__ import annotations
 
+import json
+
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
 import pytest
 import requests
 
+from hotglue_etl_exceptions import InvalidCredentialsError
+
 from hotglue_singer_sdk.helpers._hotglue_api import fetch_access_token_from_hotglue_api
+
+
+def _credential_error_env(monkeypatch):
+    monkeypatch.setenv("API_URL", "https://api.hotglue.com")
+    monkeypatch.setenv("ENV_ID", "e")
+    monkeypatch.setenv("FLOW", "f")
+    monkeypatch.setenv("TENANT", "t")
+    monkeypatch.setenv("API_KEY", "k")
+
+
+def _error_response(status_code: int, body: dict) -> MagicMock:
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.text = json.dumps(body)
+    mock_response.json.return_value = body
+    mock_response.raise_for_status.side_effect = requests.HTTPError(
+        str(status_code), response=mock_response
+    )
+    return mock_response
 
 
 def test_fetch_access_token_success(monkeypatch):
@@ -226,3 +249,56 @@ def test_fetch_access_token_missing_expires_in(monkeypatch):
         mget.return_value = mock_response
         with pytest.raises(RuntimeError, match="did not include expires_in"):
             fetch_access_token_from_hotglue_api("c1")
+
+
+def test_fetch_access_token_invalid_credentials_message(monkeypatch):
+    """Raises InvalidCredentialsError with the upstream message, unwrapped."""
+    _credential_error_env(monkeypatch)
+    upstream = (
+        "Failed OAuth login, response was '{\"error\":\"invalid_grant\","
+        "\"error_description\":\"expired access/refresh token\"}'. "
+        "400 Client Error: Bad Request for url: "
+        "https://login.salesforce.com/services/oauth2/token"
+    )
+    mock_response = _error_response(400, {"Code": "BadRequestError", "Message": upstream})
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
+        mget.return_value = mock_response
+        with pytest.raises(InvalidCredentialsError) as excinfo:
+            fetch_access_token_from_hotglue_api("c1")
+
+    assert str(excinfo.value) == upstream
+    assert "Failed Hotglue access token refresh" not in str(excinfo.value)
+    assert "api.hotglue.com" not in str(excinfo.value)
+    assert mget.call_count == 1
+
+
+def test_fetch_access_token_invalid_credentials_code(monkeypatch):
+    """Raises InvalidCredentialsError when the API reports the error class directly."""
+    _credential_error_env(monkeypatch)
+    mock_response = _error_response(
+        401, {"Code": "InvalidCredentialsError", "Message": "Credentials are no longer valid"}
+    )
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
+        mget.return_value = mock_response
+        with pytest.raises(InvalidCredentialsError, match="Credentials are no longer valid"):
+            fetch_access_token_from_hotglue_api("c1")
+
+
+def test_fetch_access_token_non_credential_client_error_stays_runtime_error(monkeypatch):
+    """Keeps RuntimeError for client errors that are not credential failures."""
+    _credential_error_env(monkeypatch)
+    mock_response = _error_response(
+        400,
+        {"Code": "BadRequestError", "Message": "Connector doesn't support get access token"},
+    )
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
+        mget.return_value = mock_response
+        with pytest.raises(RuntimeError, match="Failed Hotglue access token refresh") as excinfo:
+            fetch_access_token_from_hotglue_api("c1")
+
+    assert not isinstance(excinfo.value, InvalidCredentialsError)
+    # authenticators.update_access_token matches this text to fall back to local refresh
+    assert "Connector doesn't support get access token" in str(excinfo.value)
