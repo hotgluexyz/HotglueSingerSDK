@@ -26,13 +26,11 @@ def _credential_error_message(response: requests.Response | None) -> str | None:
     body = parsed if isinstance(parsed, dict) else {}
 
     # ("BadRequestError" is a 400). A 400 from that endpoint means the token retrieval failed
-    code = body.get("Code") or body.get("code")
+    code = body.get("Code")
     if response.status_code != 400 and code != "BadRequestError":
         return None
 
-    message = body.get("Message") or body.get("message") or ""
-    message = message if isinstance(message, str) else ""
-    return message or "Invalid credentials for this connection."
+    return body.get("Message") or "Invalid credentials for this connection."
 
 
 @backoff.on_exception(

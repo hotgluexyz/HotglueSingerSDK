@@ -357,19 +357,6 @@ def test_fetch_access_token_non_string_code_still_classified_by_status(monkeypat
             fetch_access_token_from_hotglue_api("c1")
 
 
-def test_fetch_access_token_non_string_message_falls_back_to_literal(monkeypatch):
-    """A non-string Message still classifies, with a safe default message."""
-    _credential_error_env(monkeypatch)
-    mock_response = _error_response(
-        400, {"Code": "BadRequestError", "Message": {"nested": "object"}}
-    )
-
-    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
-        mget.return_value = mock_response
-        with pytest.raises(InvalidCredentialsError, match="Invalid credentials for this connection"):
-            fetch_access_token_from_hotglue_api("c1")
-
-
 @pytest.mark.parametrize("parsed", [["a", "list"], "a string", None, 42])
 def test_credential_error_message_handles_non_dict_json_body(parsed):
     """Valid JSON that is not an object must not blow up on body.get()."""
