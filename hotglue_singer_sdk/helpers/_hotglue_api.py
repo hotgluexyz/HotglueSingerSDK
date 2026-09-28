@@ -14,29 +14,25 @@ from hotglue_singer_sdk.exceptions import RetriableAPIError
 
 logger = logging.getLogger(__name__)
 
-_CREDENTIAL_ERROR_CODES = ("InvalidCredentialsError",)
-_CREDENTIAL_ERROR_MESSAGE_MARKERS = ("Failed OAuth login", "invalid_grant")
-
 
 def _credential_error_message(response: requests.Response | None) -> str | None:
-    """Return the upstream error message when a failed response is a credential error."""
+    """Return the upstream error message when a failed response is a credential error. """
     if response is None:
         return None
     try:
-        body = response.json()
+        parsed = response.json()
     except ValueError:
+        parsed = None
+    body = parsed if isinstance(parsed, dict) else {}
+
+    # ("BadRequestError" is a 400). A 400 from that endpoint means the token retrieval failed
+    code = body.get("Code") or body.get("code")
+    if response.status_code != 400 and code != "BadRequestError":
         return None
-    if not isinstance(body, dict):
-        return None
-    code = body.get("Code") or body.get("code") or ""
+
     message = body.get("Message") or body.get("message") or ""
-    code = code if isinstance(code, str) else ""
     message = message if isinstance(message, str) else ""
-    if code in _CREDENTIAL_ERROR_CODES or any(
-        marker in message for marker in _CREDENTIAL_ERROR_MESSAGE_MARKERS
-    ):
-        return message or "Invalid credentials for this connection."
-    return None
+    return message or "Invalid credentials for this connection."
 
 
 @backoff.on_exception(

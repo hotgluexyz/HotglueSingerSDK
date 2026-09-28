@@ -12,7 +12,10 @@ import requests
 
 from hotglue_etl_exceptions import InvalidCredentialsError
 
-from hotglue_singer_sdk.helpers._hotglue_api import fetch_access_token_from_hotglue_api
+from hotglue_singer_sdk.helpers._hotglue_api import (
+    _credential_error_message,
+    fetch_access_token_from_hotglue_api,
+)
 
 
 def _credential_error_env(monkeypatch):
@@ -272,22 +275,63 @@ def test_fetch_access_token_invalid_credentials_message(monkeypatch):
     assert "api.hotglue.com" not in str(excinfo.value)
     assert mget.call_count == 1
 
-
-def test_fetch_access_token_invalid_credentials_code(monkeypatch):
-    """Raises InvalidCredentialsError when the API reports the error class directly."""
+def test_fetch_access_token_non_400_stays_runtime_error(monkeypatch):
+    """Only a 400 means the token retrieval itself failed; other 4xx still alert."""
     _credential_error_env(monkeypatch)
     mock_response = _error_response(
-        401, {"Code": "InvalidCredentialsError", "Message": "Credentials are no longer valid"}
+        401, {"Code": "UnauthorizedError", "Message": "Invalid x-api-key"}
     )
 
     with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
         mget.return_value = mock_response
-        with pytest.raises(InvalidCredentialsError, match="Credentials are no longer valid"):
+        with pytest.raises(RuntimeError) as excinfo:
+            fetch_access_token_from_hotglue_api("c1")
+
+    assert not isinstance(excinfo.value, InvalidCredentialsError)
+
+
+def test_fetch_access_token_400_without_parseable_body(monkeypatch):
+    """A 400 is classified from the status even when the body is not JSON."""
+    _credential_error_env(monkeypatch)
+    mock_response = MagicMock()
+    mock_response.status_code = 400
+    mock_response.text = "<html>Bad Request</html>"
+    mock_response.json.side_effect = ValueError("no json")
+    mock_response.raise_for_status.side_effect = requests.HTTPError(
+        "400", response=mock_response
+    )
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
+        mget.return_value = mock_response
+        with pytest.raises(InvalidCredentialsError, match="Invalid credentials for this connection"):
             fetch_access_token_from_hotglue_api("c1")
 
 
-def test_fetch_access_token_non_credential_client_error_stays_runtime_error(monkeypatch):
-    """Keeps RuntimeError for client errors that are not credential failures."""
+def test_credential_error_message_falls_back_to_code_when_status_missing():
+    """Classifies on the readable status name in Code when no status_code is set."""
+    response = MagicMock()
+    response.status_code = None
+    response.json.return_value = {"Code": "BadRequestError", "Message": "Failed OAuth login"}
+
+    assert _credential_error_message(response) == "Failed OAuth login"
+
+
+def test_credential_error_message_ignores_other_statuses():
+    """A non-400 with no recognised Code is not a credential error."""
+    response = MagicMock()
+    response.status_code = 404
+    response.json.return_value = {"Code": "NotFoundError", "Message": "Resource not found"}
+
+    assert _credential_error_message(response) is None
+
+
+def test_fetch_access_token_unsupported_connector_keeps_fallback_text(monkeypatch):
+    """A 400 now raises InvalidCredentialsError, but the allowlist text must survive.
+
+    authenticators.update_access_token matches this text on str(ex) to fall back
+    to a local refresh, and it catches Exception, so the change of class is safe
+    only as long as the message is preserved verbatim.
+    """
     _credential_error_env(monkeypatch)
     mock_response = _error_response(
         400,
@@ -296,20 +340,16 @@ def test_fetch_access_token_non_credential_client_error_stays_runtime_error(monk
 
     with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
         mget.return_value = mock_response
-        with pytest.raises(RuntimeError, match="Failed Hotglue access token refresh") as excinfo:
+        with pytest.raises(InvalidCredentialsError) as excinfo:
             fetch_access_token_from_hotglue_api("c1")
 
-    assert not isinstance(excinfo.value, InvalidCredentialsError)
-    # authenticators.update_access_token matches this text to fall back to local refresh
     assert "Connector doesn't support get access token" in str(excinfo.value)
 
 
-def test_fetch_access_token_non_string_code_still_matches_message(monkeypatch):
-    """Classifies on Message even when Code is not a string (e.g. numeric 400)."""
+def test_fetch_access_token_non_string_code_still_classified_by_status(monkeypatch):
+    """A non-string Code does not stop the 400 status from classifying."""
     _credential_error_env(monkeypatch)
-    mock_response = _error_response(
-        400, {"Code": 400, "Message": "Failed OAuth login, response was 'invalid_grant'"}
-    )
+    mock_response = _error_response(400, {"Code": 400, "Message": "Failed OAuth login"})
 
     with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
         mget.return_value = mock_response
@@ -317,14 +357,33 @@ def test_fetch_access_token_non_string_code_still_matches_message(monkeypatch):
             fetch_access_token_from_hotglue_api("c1")
 
 
-def test_fetch_access_token_non_string_message_still_matches_code(monkeypatch):
-    """Classifies on Code even when Message is not a string."""
+def test_fetch_access_token_non_string_message_falls_back_to_literal(monkeypatch):
+    """A non-string Message still classifies, with a safe default message."""
     _credential_error_env(monkeypatch)
     mock_response = _error_response(
-        401, {"Code": "InvalidCredentialsError", "Message": {"nested": "object"}}
+        400, {"Code": "BadRequestError", "Message": {"nested": "object"}}
     )
 
     with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
         mget.return_value = mock_response
         with pytest.raises(InvalidCredentialsError, match="Invalid credentials for this connection"):
             fetch_access_token_from_hotglue_api("c1")
+
+
+@pytest.mark.parametrize("parsed", [["a", "list"], "a string", None, 42])
+def test_credential_error_message_handles_non_dict_json_body(parsed):
+    """Valid JSON that is not an object must not blow up on body.get()."""
+    response = MagicMock()
+    response.status_code = 400
+    response.json.return_value = parsed
+
+    assert _credential_error_message(response) == "Invalid credentials for this connection."
+
+
+def test_credential_error_message_non_dict_json_body_non_400():
+    """Same, but a non-400 is still not a credential error."""
+    response = MagicMock()
+    response.status_code = 500
+    response.json.return_value = ["a", "list"]
+
+    assert _credential_error_message(response) is None
