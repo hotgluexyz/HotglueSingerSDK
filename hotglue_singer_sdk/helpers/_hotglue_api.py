@@ -8,10 +8,42 @@ from typing import Any
 
 import backoff
 import requests
+from hotglue_etl_exceptions import InvalidCredentialsError
 
 from hotglue_singer_sdk.exceptions import RetriableAPIError
 
 logger = logging.getLogger(__name__)
+
+# Access token errors Hotglue can't recover from; keep them out of credential handling.
+FALLBACK_TO_LOCAL_REFRESH_ERRORS = (
+    "Connector doesn't support get access token",  # Tap CLI has no --access-token
+    "Fetch access token support is not implemented",  # No access_token_support
+    "does not support real time",  # No realtime tap/target lambda
+    "Missing required env vars",  # Local dev: ENV_ID/FLOW/TENANT/API_KEY/TAP|TARGET unset
+    "No available connector found for target",  # v1 TARGET->tap unable to resolve
+    "is not an available connector",  # v1 TARGET->tap unable to resolve
+)
+
+
+def _credential_error_message(response: requests.Response) -> str | None:
+    """Return the upstream error message when a failed response is a credential error. """
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+
+    # ("BadRequestError" is a 400). A 400 from that endpoint means the token retrieval failed
+    code = body.get("Code")
+    if response.status_code != 400 and code != "BadRequestError":
+        return None
+
+    message = body.get("Message") or ""
+    if any(error in message for error in FALLBACK_TO_LOCAL_REFRESH_ERRORS):
+        return None
+
+    return message or "Invalid credentials for this connection."
 
 
 @backoff.on_exception(
@@ -54,6 +86,8 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
         may include refresh_token etc.).
 
     Raises:
+        InvalidCredentialsError: If the access token API reports that the
+            connection's credentials are invalid or expired.
         RuntimeError: If required env vars or connector_id are missing, or
             the API request fails or response is invalid.
     """
@@ -89,9 +123,26 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
     try:
         token_response = _get_access_token_response(endpoint, api_key)
     except (RetriableAPIError, requests.HTTPError) as ex:
+        if ex.response is None:
+            raise RuntimeError(f"Failed Hotglue access token refresh. {ex}") from ex
+
+        response_text = ex.response.text
+        credential_error = _credential_error_message(ex.response)
+        if credential_error:
+            logger.warning(
+                "Hotglue access token refresh failed with invalid credentials for "
+                "env_id=%s flow=%s tenant=%s connector_id=%s. Response was '%s'. %s",
+                env_id,
+                flow_id,
+                tenant,
+                connector_id,
+                response_text,
+                ex,
+            )
+            raise InvalidCredentialsError(credential_error) from ex
         raise RuntimeError(
             f"Failed Hotglue access token refresh, response was "
-            f"'{ex.response.text if ex.response is not None else ''}'. {ex}"
+            f"'{response_text}'. {ex}"
         ) from ex
 
     token_json = token_response.json()
