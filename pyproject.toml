@@ -6,8 +6,8 @@ authors = ["Hotglue Team and Contributors. Original work by Meltano Team and Con
 maintainers = ["Hotglue Team and Contributors"]
 readme = "README.md"
 homepage = "https://hotglue.com"
-repository = "https://github.com/hotglue/hotgluesingersdk"
-documentation = "https://hotglue.com"
+repository = "https://github.com/hotgluexyz/hotgluesingersdk"
+documentation = "https://docs.hotglue.com"
 keywords = [
     "Hotglue",
     "Hotglue SDK",
@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Typing :: Typed",
 ]
-license = "Apache 2.0"
+license = "Apache-2.0"
 include = [
     "hotglue_singer_sdk/default_logging.conf",
 ]
