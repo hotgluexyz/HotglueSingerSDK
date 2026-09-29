@@ -25,15 +25,14 @@ FALLBACK_TO_LOCAL_REFRESH_ERRORS = (
 )
 
 
-def _credential_error_message(response: requests.Response | None) -> str | None:
+def _credential_error_message(response: requests.Response) -> str | None:
     """Return the upstream error message when a failed response is a credential error. """
-    if response is None:
-        return None
     try:
-        parsed = response.json()
+        body = response.json()
     except ValueError:
-        parsed = None
-    body = parsed if isinstance(parsed, dict) else {}
+        return None
+    if not isinstance(body, dict):
+        return None
 
     # ("BadRequestError" is a 400). A 400 from that endpoint means the token retrieval failed
     code = body.get("Code")
@@ -124,7 +123,10 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
     try:
         token_response = _get_access_token_response(endpoint, api_key)
     except (RetriableAPIError, requests.HTTPError) as ex:
-        response_text = ex.response.text if ex.response is not None else ""
+        if ex.response is None:
+            raise RuntimeError(f"Failed Hotglue access token refresh. {ex}") from ex
+
+        response_text = ex.response.text
         credential_error = _credential_error_message(ex.response)
         if credential_error:
             logger.warning(

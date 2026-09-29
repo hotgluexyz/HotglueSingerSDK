@@ -292,7 +292,7 @@ def test_fetch_access_token_non_400_stays_runtime_error(monkeypatch):
 
 
 def test_fetch_access_token_400_without_parseable_body(monkeypatch):
-    """A 400 is classified from the status even when the body is not JSON."""
+    """A 400 whose body is not JSON is a platform failure, so it still alerts."""
     _credential_error_env(monkeypatch)
     mock_response = MagicMock()
     mock_response.status_code = 400
@@ -304,8 +304,10 @@ def test_fetch_access_token_400_without_parseable_body(monkeypatch):
 
     with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
         mget.return_value = mock_response
-        with pytest.raises(InvalidCredentialsError, match="Invalid credentials for this connection"):
+        with pytest.raises(RuntimeError) as excinfo:
             fetch_access_token_from_hotglue_api("c1")
+
+    assert not isinstance(excinfo.value, InvalidCredentialsError)
 
 
 def test_credential_error_message_falls_back_to_code_when_status_missing():
@@ -357,13 +359,13 @@ def test_fetch_access_token_non_string_code_still_classified_by_status(monkeypat
 
 
 @pytest.mark.parametrize("parsed", [["a", "list"], "a string", None, 42])
-def test_credential_error_message_handles_non_dict_json_body(parsed):
-    """Valid JSON that is not an object must not blow up on body.get()."""
+def test_credential_error_message_non_dict_json_body_is_not_credential(parsed):
+    """A body that is not a JSON object means something is broken on our side."""
     response = MagicMock()
     response.status_code = 400
     response.json.return_value = parsed
 
-    assert _credential_error_message(response) == "Invalid credentials for this connection."
+    assert _credential_error_message(response) is None
 
 
 def test_credential_error_message_non_dict_json_body_non_400():
@@ -373,3 +375,15 @@ def test_credential_error_message_non_dict_json_body_non_400():
     response.json.return_value = ["a", "list"]
 
     assert _credential_error_message(response) is None
+
+
+def test_fetch_access_token_http_error_without_response(monkeypatch):
+    """An HTTPError carrying no response raises RuntimeError without inspecting it."""
+    _credential_error_env(monkeypatch)
+
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
+        mget.side_effect = requests.HTTPError("boom", response=None)
+        with pytest.raises(RuntimeError, match="Failed Hotglue access token refresh") as excinfo:
+            fetch_access_token_from_hotglue_api("c1")
+
+    assert not isinstance(excinfo.value, InvalidCredentialsError)
