@@ -14,6 +14,16 @@ from hotglue_singer_sdk.exceptions import RetriableAPIError
 
 logger = logging.getLogger(__name__)
 
+# Access token errors Hotglue can't recover from; keep them out of credential handling.
+FALLBACK_TO_LOCAL_REFRESH_ERRORS = (
+    "Connector doesn't support get access token",  # Tap CLI has no --access-token
+    "Fetch access token support is not implemented",  # No access_token_support
+    "does not support real time",  # No realtime tap/target lambda
+    "Missing required env vars",  # Local dev: ENV_ID/FLOW/TENANT/API_KEY/TAP|TARGET unset
+    "No available connector found for target",  # v1 TARGET->tap unable to resolve
+    "is not an available connector",  # v1 TARGET->tap unable to resolve
+)
+
 
 def _credential_error_message(response: requests.Response | None) -> str | None:
     """Return the upstream error message when a failed response is a credential error. """
@@ -30,7 +40,11 @@ def _credential_error_message(response: requests.Response | None) -> str | None:
     if response.status_code != 400 and code != "BadRequestError":
         return None
 
-    return body.get("Message") or "Invalid credentials for this connection."
+    message = body.get("Message") or ""
+    if any(error in message for error in FALLBACK_TO_LOCAL_REFRESH_ERRORS):
+        return None
+
+    return message or "Invalid credentials for this connection."
 
 
 @backoff.on_exception(

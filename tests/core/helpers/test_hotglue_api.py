@@ -13,6 +13,7 @@ import requests
 from hotglue_etl_exceptions import InvalidCredentialsError
 
 from hotglue_singer_sdk.helpers._hotglue_api import (
+    FALLBACK_TO_LOCAL_REFRESH_ERRORS,
     _credential_error_message,
     fetch_access_token_from_hotglue_api,
 )
@@ -325,25 +326,23 @@ def test_credential_error_message_ignores_other_statuses():
     assert _credential_error_message(response) is None
 
 
-def test_fetch_access_token_unsupported_connector_keeps_fallback_text(monkeypatch):
-    """A 400 now raises InvalidCredentialsError, but the allowlist text must survive.
+def test_fetch_access_token_fallback_errors_stay_runtime_error(monkeypatch):
+    """Capability failures come back as 400 too, but are not credential errors.
 
-    authenticators.update_access_token matches this text on str(ex) to fall back
-    to a local refresh, and it catches Exception, so the change of class is safe
-    only as long as the message is preserved verbatim.
+    Callers match these messages to fall back to a local refresh, so they must
+    keep raising RuntimeError and keep alerting.
     """
     _credential_error_env(monkeypatch)
-    mock_response = _error_response(
-        400,
-        {"Code": "BadRequestError", "Message": "Connector doesn't support get access token"},
-    )
-
-    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
-        mget.return_value = mock_response
-        with pytest.raises(InvalidCredentialsError) as excinfo:
-            fetch_access_token_from_hotglue_api("c1")
-
-    assert "Connector doesn't support get access token" in str(excinfo.value)
+    for fallback_error in FALLBACK_TO_LOCAL_REFRESH_ERRORS:
+        mock_response = _error_response(
+            400, {"Code": "BadRequestError", "Message": f"{fallback_error} for connector"}
+        )
+        with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
+            mget.return_value = mock_response
+            with pytest.raises(RuntimeError) as excinfo:
+                fetch_access_token_from_hotglue_api("c1")
+        assert not isinstance(excinfo.value, InvalidCredentialsError), fallback_error
+        assert fallback_error in str(excinfo.value)
 
 
 def test_fetch_access_token_non_string_code_still_classified_by_status(monkeypatch):
