@@ -1,5 +1,6 @@
 """WoocommerceSink target sink class, which handles writing streams."""
 
+import copy
 import hashlib
 import json
 import os
@@ -15,6 +16,8 @@ from hotglue_etl_exceptions import InvalidCredentialsError, InvalidPayloadError
 
 class HotglueBaseSink(Rest):
     summary_init = False
+    TARGET_STATE_FIELD_VALUES_CONTEXT_KEY = "_target_state_field_values"
+    supports_target_state_fields = True
     # include any stream names if externalId needs to be passed in the payload
     allows_externalid = []
     previous_state = None
@@ -49,7 +52,66 @@ class HotglueBaseSink(Rest):
     ) -> None:
         self._state = dict(target._state)
         self._target = target
+        self._target_state_fields: List[str] = []
+        self._target_state_include_hash = False
         super().__init__(target, stream_name, schema, key_properties)
+
+    def configure_target_state_custom_data(self, x_hotglue: Optional[dict]) -> None:
+        """Read ``x-hotglue`` SCHEMA metadata for bookmark ``customData`` enrichment.
+
+        ``target_state_fields`` is only honored on per-record sinks (see
+        ``supports_target_state_fields``); a batch sink configured with it will
+        log a one-time warning and skip source-field capture. 
+        ``target_state_include_hash`` works for any sink.
+        """
+        settings = x_hotglue if isinstance(x_hotglue, dict) else {}
+        raw_fields = settings.get("target_state_fields")
+        if isinstance(raw_fields, list):
+            self._target_state_fields = [
+                name for name in raw_fields if isinstance(name, str)
+            ]
+        else:
+            self._target_state_fields = []
+        self._target_state_include_hash = (
+            settings.get("target_state_include_hash") is True
+        )
+        if self._target_state_fields and not self.supports_target_state_fields:
+            self.logger.warning(
+                f"Stream '{self.name}' configured target_state_fields "
+                f"{self._target_state_fields}, but {type(self).__name__} does not "
+                "support capturing source fields into bookmark customData for "
+                "batch sinks. These fields will be ignored; "
+                "target_state_include_hash is unaffected."
+            )
+            self._target_state_fields = []
+
+    def custom_target_state_data_enabled(self) -> bool:
+        """Return whether SCHEMA ``x-hotglue`` requests SDK enrichment of bookmark ``customData``."""
+        return bool(self._target_state_fields or self._target_state_include_hash)
+
+    def capture_target_state_field_values(self, record: dict) -> dict:
+        """Capture configured ETL field values before preprocess can mutate them."""
+        captured = {}
+        for field_name in self._target_state_fields:
+            if field_name not in record:
+                continue
+            value = record[field_name]
+            if value is not None:
+                captured[field_name] = copy.deepcopy(value)
+        return captured
+
+    def prepare_target_state_field_context(self, record: dict, context: dict) -> None:
+        """Stash configured field values in context before external preprocess.
+
+        Only meaningful for per-record sinks: batch sinks share one context
+        across every record in the batch, so a value stashed here would be
+        overwritten by the next record and is never read back in
+        ``process_batch``.
+        """
+        if self._target_state_fields:
+            context[self.TARGET_STATE_FIELD_VALUES_CONTEXT_KEY] = (
+                self.capture_target_state_field_values(record)
+            )
 
     def url(self, endpoint=None):
         if not endpoint:
@@ -128,7 +190,28 @@ class HotglueBaseSink(Rest):
         state["error"] = self.error_to_string(state.get("error"))
         return state
 
-    def update_state(self, state: dict, is_duplicate=False, record=None):
+    def _enrich_custom_data(
+        self, state: dict, snapshot_field_values: Optional[dict] = None
+    ) -> None:
+        """Merge ETL field values into ``customData``; target-provided values win."""
+        custom_data = dict(snapshot_field_values or {})
+        if self._target_state_include_hash:
+            record_hash = state.get("hash")
+            if record_hash is not None:
+                custom_data["hash"] = record_hash
+        target_custom_data = state.get("customData")
+        if isinstance(target_custom_data, dict):
+            custom_data.update(target_custom_data)
+        if custom_data:
+            state["customData"] = custom_data
+
+    def update_state(
+        self,
+        state: dict,
+        is_duplicate: bool = False,
+        record: Optional[dict] = None,
+        snapshot_field_values: Optional[dict] = None,
+    ) -> None:
         if is_duplicate:
             self.logger.info(f"Record of type {self.name} already exists with id: {state.get('id')}")
             self.latest_state["summary"][self.name]["existing"] += 1
@@ -145,6 +228,13 @@ class HotglueBaseSink(Rest):
         # add the mapped record to the state if it exists and env var OUTPUT_MAPPED_RECORD is set to true
         if record and os.getenv("OUTPUT_MAPPED_RECORD", "false").lower() == "true":
             state["mapped_record"] = record
+
+        if (
+            not is_duplicate
+            and state.get("success", False)
+            and self.custom_target_state_data_enabled()
+        ):
+            self._enrich_custom_data(state, snapshot_field_values)
 
         self.latest_state["bookmarks"][self.name].append(state)
 
@@ -234,6 +324,11 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         if not self.latest_state:
             self.init_state()
 
+        snapshot_field_values = context.pop(
+            self.TARGET_STATE_FIELD_VALUES_CONTEXT_KEY, None
+        )
+        if snapshot_field_values is None and self._target_state_fields:
+            snapshot_field_values = self.capture_target_state_field_values(record)
         id = None
         external_id = None
         state_updates = dict()
@@ -273,7 +368,11 @@ class HotglueSink(HotglueBaseSink, RecordSink):
             external_id = record.pop(external_id_key, None) or record.pop(external_id_key.lower(), None)
 
         if existing_state:
-            return self.update_state(existing_state, is_duplicate=True, record=record)
+            return self.update_state(
+                existing_state,
+                is_duplicate=True,
+                record=record,
+            )
 
         try:
             id, success, state_updates = self.upsert_record(record, context)
@@ -309,11 +408,18 @@ class HotglueSink(HotglueBaseSink, RecordSink):
         if state_updates and isinstance(state_updates, dict):
             state = dict(state, **state_updates)
 
-        self.update_state(state, is_duplicate=is_duplicate, record=record)
+        self.update_state(
+            state,
+            is_duplicate=is_duplicate,
+            record=record,
+            snapshot_field_values=snapshot_field_values,
+        )
 
 
 class HotglueBatchSink(HotglueBaseSink, BatchSink):
     """Hotglue target sink class."""
+
+    supports_target_state_fields = False
 
     def process_batch_record(self, record: dict, index: int) -> dict:
         return record

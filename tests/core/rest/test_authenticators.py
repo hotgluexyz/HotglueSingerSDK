@@ -252,6 +252,7 @@ def test_oauth_authenticator_hg_access_token_refresh(
     [
         "Connector doesn't support get access token",
         "This target does not support real time",
+        "Missing required env vars",
     ],
 )
 def test_oauth_authenticator_falls_back_to_local_when_hg_refresh_fails(
@@ -294,9 +295,6 @@ def test_oauth_authenticator_does_not_fall_back_on_other_hg_refresh_errors(
     rest_tap._config["_refresh_token_via_hg_api"] = True
     monkeypatch.setattr(rest_tap, "confirm_fetch_access_token_support", lambda: True)
 
-    for env_var in ["API_URL", "ENV_ID", "FLOW", "TENANT", "TAP", "API_KEY"]:
-        monkeypatch.delenv(env_var, raising=False)
-
     local_request = requests_mock.post(
         "https://example.com/oauth",
         json={"access_token": "local-token", "expires_in": 123},
@@ -307,7 +305,12 @@ def test_oauth_authenticator_does_not_fall_back_on_other_hg_refresh_errors(
         auth_endpoint="https://example.com/oauth",
     )
 
-    with pytest.raises(RuntimeError, match="Missing required env vars"):
+    def fail_hg_refresh() -> None:
+        raise RuntimeError("NOT_ALLOWLISTED: Hotglue access token refresh was not successful: boom")
+
+    monkeypatch.setattr(authenticator, "_update_access_token_via_hg_api", fail_hg_refresh)
+
+    with pytest.raises(RuntimeError, match="not successful"):
         authenticator.update_access_token()
 
     assert local_request.call_count == 0

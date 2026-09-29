@@ -472,7 +472,11 @@ class OAuthAuthenticator(APIAuthenticatorBase):
         Raises:
             RuntimeError: When OAuth login fails.
         """
-        fallback_to_local_refresh_errors = ["Connector doesn't support get access token", "does not support real time"]
+        fallback_to_local_refresh_errors = [
+            "Connector doesn't support get access token",
+            "does not support real time",
+            "Missing required env vars",  # Local dev: ENV_ID/FLOW/TENANT/API_KEY/TAP unset
+        ]
         if self.config.get("_refresh_token_via_hg_api", True) is True:
             try:
                 # check if access_token_support is available

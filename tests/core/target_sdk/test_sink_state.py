@@ -10,7 +10,7 @@ import pytest
 
 from hotglue_etl_exceptions import InvalidPayloadError
 
-from hotglue_singer_sdk.target_sdk.client import HotglueBaseSink, HotglueBatchSink, HotglueSink
+from hotglue_singer_sdk.target_sdk.client import HotglueBatchSink, HotglueSink
 
 
 class FakeTarget:
@@ -53,6 +53,24 @@ class CapturingSink(HotglueSink):
 
 class CapturingSinkExternalAllowed(CapturingSink):
     allows_externalid = ["widgets"]
+
+
+class CustomDataSink(CapturingSink):
+    def upsert_record(self, record: dict, context: dict):
+        id, success, _ = super().upsert_record(record, context)
+        return id, success, {
+            "customData": {
+                "Notes": "from-target",
+                "validation": "hgi-10581",
+            }
+        }
+
+
+class PreprocessStripsFieldSink(CapturingSink):
+    def preprocess_record(self, record: dict, context: dict) -> dict:
+        record = dict(record)
+        record.pop("Notes", None)
+        return record
 
 
 class ErrorSink(HotglueSink):
@@ -254,17 +272,6 @@ class BatchInPlaceMutationRequestErrorSink(HotglueBatchSink):
         return {"state_updates": []}
 
 
-@pytest.fixture(autouse=True)
-def reset_hotglue_base_state():
-    HotglueBaseSink.summary_init = False
-    HotglueBaseSink.previous_state = None
-    HotglueBaseSink.processed_hashes = []
-    yield
-    HotglueBaseSink.summary_init = False
-    HotglueBaseSink.previous_state = None
-    HotglueBaseSink.processed_hashes = []
-
-
 def _make_sink(target: FakeTarget, sink_cls=CapturingSink):
     schema = {"type": "object", "properties": {}}
     return sink_cls(target=target, stream_name="widgets", schema=schema, key_properties=[])
@@ -278,6 +285,156 @@ def test_hash_deterministic():
     h1 = sink.build_record_hash(record)
     h2 = sink.build_record_hash(record)
     assert h1 == h2
+
+
+def test_target_state_fields_in_custom_data():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_custom_data(
+        {"target_state_fields": ["Notes"], "target_state_include_hash": False}
+    )
+
+    record = {"name": "a", "externalId": "e1", "Notes": "snapshot note"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"Notes": "snapshot note"}
+
+
+class PreprocessMutatesNestedSink(CapturingSink):
+    def preprocess_record(self, record: dict, context: dict) -> dict:
+        record["details"]["Notes"] = "mutated"
+        return record
+
+
+def test_target_state_fields_use_deepcopy_for_nested_values():
+    target = FakeTarget()
+    sink = _make_sink(target, PreprocessMutatesNestedSink)
+    sink.configure_target_state_custom_data({"target_state_fields": ["details"]})
+
+    record = {
+        "name": "a",
+        "externalId": "e1",
+        "details": {"Notes": "original"},
+    }
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"details": {"Notes": "original"}}
+
+
+@pytest.mark.parametrize("success", [None, 0])
+def test_falsy_non_false_success_skips_custom_data_enrichment(success):
+    """A falsy but non-``False`` success value is still treated as a failure."""
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_custom_data({"target_state_include_hash": True})
+    sink.init_state()
+
+    sink.update_state(
+        {"success": success, "hash": "some-hash", "id": "id-1", "externalId": "e1"},
+    )
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert "customData" not in state_entry
+    assert sink.latest_state["summary"]["widgets"]["fail"] == 1
+
+
+def test_target_state_include_hash_without_field_values():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_custom_data({"target_state_include_hash": True})
+    sink.init_state()
+
+    sink.update_state(
+        {"success": True, "hash": "empty-record-hash", "id": "id-1", "externalId": "e1"},
+    )
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"hash": "empty-record-hash"}
+
+
+def test_capture_target_state_field_values_only_configured_fields():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_custom_data({"target_state_fields": ["Notes"]})
+
+    captured = sink.capture_target_state_field_values(
+        {
+            "name": "a",
+            "externalId": "e1",
+            "Notes": "keep me",
+            "ignored": "drop me",
+        }
+    )
+
+    assert captured == {"Notes": "keep me"}
+
+
+def test_snapshot_disabled_skips_field_capture():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    context = {}
+
+    sink.prepare_target_state_field_context(
+        {"name": "a", "externalId": "e1", "Notes": "ignored"},
+        context,
+    )
+
+    assert context == {}
+
+
+def test_target_state_fields_captured_before_preprocess():
+    target = FakeTarget()
+    sink = _make_sink(target, PreprocessStripsFieldSink)
+    sink.configure_target_state_custom_data({"target_state_fields": ["Notes"]})
+
+    record = {"name": "a", "externalId": "e1", "Notes": "kept from singer"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {"Notes": "kept from singer"}
+
+
+def test_target_state_include_hash_in_custom_data():
+    target = FakeTarget()
+    sink = _make_sink(target)
+    sink.configure_target_state_custom_data({"target_state_include_hash": True})
+
+    record = {"name": "a", "externalId": "e1"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"]["hash"] == state_entry["hash"]
+
+
+def test_target_custom_data_wins_merge():
+    target = FakeTarget()
+    sink = _make_sink(target, CustomDataSink)
+    sink.configure_target_state_custom_data(
+        {"target_state_fields": ["Notes"], "target_state_include_hash": True}
+    )
+
+    record = {"name": "a", "externalId": "e1", "Notes": "from-etl"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert state_entry["customData"] == {
+        "Notes": "from-target",
+        "hash": state_entry["hash"],
+        "validation": "hgi-10581",
+    }
+
+
+def test_no_custom_data_without_snapshot_config():
+    target = FakeTarget()
+    sink = _make_sink(target)
+
+    record = {"name": "a", "externalId": "e1", "Notes": "ignored"}
+    sink.process_record(record, context={})
+
+    state_entry = sink.latest_state["bookmarks"]["widgets"][0]
+    assert "customData" not in state_entry
 
 
 def test_externalid_removed_from_payload_but_in_state():
@@ -412,6 +569,22 @@ def test_get_previous_state_sanitizes_failures(tmp_path):
     assert target._latest_state == sanitized
     assert "h1" in sink.processed_hashes
     assert "h2" not in sink.processed_hashes
+
+
+def test_batch_sink_ignores_target_state_fields_with_warning(caplog):
+    """Batch sinks skip target_state_fields capture and log a one-time warning."""
+    target = FakeTarget()
+    sink = _make_sink(target, BatchStateSink)
+
+    with caplog.at_level(logging.WARNING):
+        sink.configure_target_state_custom_data(
+            {"target_state_fields": ["Notes"], "target_state_include_hash": True}
+        )
+
+    assert sink._target_state_fields == []
+    assert sink._target_state_include_hash is True
+    assert "does not support" in caplog.text
+    assert "Notes" in caplog.text
 
 
 def test_batch_state_updates_propagate():
