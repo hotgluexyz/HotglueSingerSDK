@@ -930,6 +930,7 @@ def custom_hotglue_tap_exception_handling(exc_type, exc_value, exc_traceback):
 
             if override_alerting_level_exception:
                 alerting_level = tap_instance.exception_alerting_level_map[override_alerting_level_exception]
+                exc_type_name = override_alerting_level_exception.__name__
 
         exc_json = {
             "exception_name": exc_type_name,
