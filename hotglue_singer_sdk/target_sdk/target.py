@@ -200,6 +200,31 @@ class TargetHotglue(Target):
             return pd.read_parquet(snapshot_path_parquet)
         return None
 
+    def _resolve_relation_external_id(self, object_name, ref_external_id):
+        """Resolve one related external id via state bookmarks, then snapshot."""
+        if ref_external_id:
+            sink_bookmarks = (self._latest_state or {}).get("bookmarks", {}).get(object_name)
+            cur_record_state = next(
+                (x for x in sink_bookmarks if x.get("externalId") == ref_external_id),
+                None
+            ) if sink_bookmarks else None
+
+            if cur_record_state and cur_record_state.get("id"):
+                return cur_record_state.get("id")
+
+        relation_snapshot_name = f"{object_name}_{flow_id}"
+        relation_snapshot = self.read_snapshot(relation_snapshot_name)
+
+        if relation_snapshot is None:
+            return ref_external_id
+
+        row = relation_snapshot[relation_snapshot["InputId"] == ref_external_id]
+
+        if len(row) > 0:
+            return row.iloc[0]["RemoteId"]
+
+        return ref_external_id
+
     def get_record_id(self, sink_name, record, relation_fields=None):
         external_id = record.get(self.EXTERNAL_ID_KEY)
         if external_id and not record.get(self.GLOBAL_PRIMARY_KEY):
@@ -217,7 +242,8 @@ class TargetHotglue(Target):
 
                 if not isinstance(relation, dict):
                     continue
-
+                
+                value_type = relation.get("valueType") # indicates the value type, default is a scalar value (i.e. string, number, boolean, etc.)
                 field = relation.get("field")
                 object_name = relation.get("objectName")
 
@@ -227,29 +253,16 @@ class TargetHotglue(Target):
                     not record.get(field)
                 ):
                     continue
-
-                ref_external_id = record.get(field)
-                if ref_external_id:
-                    sink_bookmarks = (self._latest_state or {}).get("bookmarks", {}).get(object_name)
-                    cur_record_state = next(
-                        (x for x in sink_bookmarks if x.get("externalId") == ref_external_id),
-                        None
-                    ) if sink_bookmarks else None
-                    
-                    if cur_record_state and cur_record_state.get("id"):
-                        record[field] = cur_record_state.get("id")
+                
+                if value_type == "list":
+                    if not isinstance(record.get(field), list) or not record.get(field):
                         continue
-
-                relation_snapshot_name = f"{object_name}_{flow_id}"
-                relation_snapshot = self.read_snapshot(relation_snapshot_name)
-
-                if relation_snapshot is None:
-                    continue
-
-                row = relation_snapshot[relation_snapshot["InputId"] == record.get(field)]
-
-                if len(row) > 0:
-                    record[field] = row.iloc[0]["RemoteId"]
+                    resolved_ids = []
+                    for val in record.get(field):
+                        resolved_ids.append(self._resolve_relation_external_id(object_name, val))
+                    record[field] = resolved_ids
+                else:
+                    record[field] = self._resolve_relation_external_id(object_name, record.get(field))
 
         return record
 
