@@ -6,6 +6,10 @@ class ConfigValidationError(Exception):
     """Raised when a user's config settings fail validation."""
 
 
+class CatalogKeyPropertiesMismatchError(Exception):
+    """Raised when catalog key_properties do not match the stream's primary keys."""
+
+
 class FatalAPIError(Exception):
     """Exception raised when a failed request should not be considered retriable."""
 
