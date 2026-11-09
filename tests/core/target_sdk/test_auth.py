@@ -330,6 +330,14 @@ def test_is_token_valid_false_until_refreshed(target_config):
     assert auth.is_token_valid() is False
 
 
+def test_is_token_valid_when_subclass_skips_super_init(target_config):
+    class _NoSuperInit(OAuthAuthenticator):
+        def __init__(self, target):
+            self._config = target._config
+
+    assert _NoSuperInit(_FakeTarget(target_config)).is_token_valid() is False
+
+
 @freeze_time("1970-01-01 00:16:40")
 def test_is_token_valid_true_without_expires_in_after_refresh(target_config):
     t = _FakeTarget(config={**target_config, "_refresh_token_via_hg_api": False})
