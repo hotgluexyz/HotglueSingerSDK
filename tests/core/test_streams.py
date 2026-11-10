@@ -13,7 +13,7 @@ from singer import RecordMessage
 
 from hotglue_singer_sdk.helpers._classproperty import classproperty
 from hotglue_singer_sdk.helpers._singer import Catalog, MetadataMapping
-from hotglue_singer_sdk.helpers.jsonpath import _compile_jsonpath
+from hotglue_singer_sdk.helpers.jsonpath import _compile_jsonpath, extract_jsonpath
 from hotglue_singer_sdk.streams.core import (
     REPLICATION_FULL_TABLE,
     REPLICATION_INCREMENTAL,
@@ -333,6 +333,23 @@ def test_stream_starting_timestamp(
             [{"id": 1, "value": "abc"}],
         ),
         (
+            "$[*]",
+            '{"id": 1, "value": "abc"}',
+            [{"id": 1, "value": "abc"}],
+        ),
+        (
+            "$.[*]",
+            '{"id": 1, "value": "abc"}',
+            [{"id": 1, "value": "abc"}],
+        ),
+        (
+            "$.data[*].records[*]",
+            '{"data": {"records": {"id": 1, "value": "abc"}}}',
+            [{"id": 1, "value": "abc"}],
+        ),
+        ("$[*]", "{}", [{}]),
+        ("$[*]", "[]", []),
+        (
             "$.data.*",
             """
             {
@@ -356,6 +373,11 @@ def test_stream_starting_timestamp(
         "nested_one_level",
         "nested_two_levels",
         "single_object",
+        "wildcard_object",
+        "dotted_wildcard_object",
+        "nested_single_objects",
+        "empty_object",
+        "empty_array",
         "nested_values",
     ],
 )
@@ -504,6 +526,50 @@ def test_cached_jsonpath():
 
     # cached objects should point to the same memory location
     assert recompiled is compiled
+
+
+@pytest.mark.parametrize(
+    "path,payload,result",
+    [
+        ("$.data[*]", {"data": False}, [False]),
+        ("$.data[*]", {"data": 0}, [0]),
+        ("$.data[*]", {"data": ""}, [""]),
+        ("$.data[*]", {"data": None}, []),
+        ("$.data[1:]", {"data": {"id": 1}}, []),
+        ("$.data[:1]", {"data": {"id": 1}}, [{"id": 1}]),
+        ("$.data.*", {"data": [{"id": 1}, {"id": 2}]}, []),
+        ("$.data[-1].id", {"data": [{"id": 1}, {"id": 7}]}, [7]),
+        (
+            "$.data.orders.edges[*].node",
+            {"data": {"orders": {"edges": [{"node": {"id": 1}}, {"node": {"id": 7}}]}}},
+            [{"id": 1}, {"id": 7}],
+        ),
+        (
+            "$.response.[0].@iteratorID",
+            {"response": [{"@iteratorID": "cursor_1"}, {"@iteratorID": "cursor_7"}]},
+            ["cursor_1"],
+        ),
+        ("$.['@odata.nextLink']", {"@odata.nextLink": "page_7"}, ["page_7"]),
+        (
+            "$.data.*",
+            {"data": {"first": {"id": 1}, "second": {"id": 2}}},
+            [{"id": 1}, {"id": 2}],
+        ),
+        (
+            "$.data[?(@.type == 'next')].value",
+            {
+                "data": [
+                    {"type": "first", "value": "page_1"},
+                    {"type": "next", "value": "page_3"},
+                ]
+            },
+            ["page_3"],
+        ),
+    ],
+)
+def test_extract_jsonpath_legacy_selectors(path, payload, result):
+    """Preserve singleton coercion without changing field wildcards or pagination."""
+    assert list(extract_jsonpath(path, input=payload)) == result
 
 
 def test_sync_costs_calculation(tap: SimpleTestTap, caplog):
