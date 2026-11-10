@@ -2,7 +2,7 @@ name: Run tests
 
 on:
   pull_request:
-    branches: [main, master]
+    branches: [main, master, 'feat/hgi-11648-*']
 
 jobs:
   tox-py:
@@ -29,3 +29,26 @@ jobs:
 
       - name: Run tox -e py
         run: tox -e py
+
+  jsonpath-py314:
+    name: JSONPath on Python 3.14 (fresh dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install with fresh dependency resolution
+        run: python -m pip install . pytest
+
+      - name: Report installed versions
+        run: |
+          python --version
+          python -m pip show jsonpath-ng
+
+      - name: Check legacy JSONPath behavior
+        run: python -m pytest -q tests/core/test_streams.py -k jsonpath
