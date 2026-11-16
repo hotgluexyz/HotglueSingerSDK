@@ -11,7 +11,6 @@ import requests
 from hotglue_etl_exceptions import InvalidCredentialsError
 
 from hotglue_singer_sdk.exceptions import RetriableAPIError
-from hotglue_singer_sdk.helpers._compat import metadata
 
 logger = logging.getLogger(__name__)
 
@@ -78,15 +77,18 @@ def _get_access_token_response(
     return token_response
 
 
-def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, Any]:
+def fetch_access_token_from_hotglue_api(
+    connector_id: str | None, connector_version: str | None = None
+) -> dict[str, Any]:
     """Fetch access token from the Hotglue access token API endpoint.
 
     Reads ENV_ID, FLOW, TENANT, API_KEY, API_URL from environment.
     Caller supplies connector_id (e.g. os.environ.get("TAP") or "TARGET").
 
     Args:
-        connector_id: Connector identifier (e.g. tap or target id). Also used to
-            look up the installed package version for the request-source header.
+        connector_id: Runtime connector identifier (e.g. tap or target id).
+        connector_version: Version from the tap or target instance. Defaults to
+            unknown when unavailable.
 
     Returns:
         The validated response JSON dict (at least access_token, expires_in;
@@ -117,9 +119,7 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
             "Missing required env vars for Hotglue access token refresh: "
             + ", ".join(missing)
         )
-    try:
-        connector_version = metadata.version(connector_id)
-    except metadata.PackageNotFoundError:
+    if not connector_version or connector_version == "[could not be detected]":
         connector_version = "unknown"
     request_source = f"{connector_id}/{connector_version}"
 

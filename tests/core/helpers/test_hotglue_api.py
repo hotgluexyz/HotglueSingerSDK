@@ -12,7 +12,6 @@ import requests
 
 from hotglue_etl_exceptions import InvalidCredentialsError
 
-from hotglue_singer_sdk.helpers._compat import metadata
 from hotglue_singer_sdk.helpers._hotglue_api import (
     FALLBACK_TO_LOCAL_REFRESH_ERRORS,
     _credential_error_message,
@@ -59,20 +58,17 @@ def test_fetch_access_token_success(monkeypatch, connector_id, connector_version
     }
     mock_response.raise_for_status = MagicMock()
 
-    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget, patch(
-        "hotglue_singer_sdk.helpers._hotglue_api.metadata.version",
-        return_value=connector_version,
-        side_effect=metadata.PackageNotFoundError if connector_version is None else None,
-    ) as mversion:
+    with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
         mget.return_value = mock_response
-        result = fetch_access_token_from_hotglue_api(connector_id)
+        result = fetch_access_token_from_hotglue_api(
+            connector_id, connector_version=connector_version
+        )
 
     assert result["access_token"] == "tok-123"
     assert result["expires_in"] == 999888777
     assert result["refresh_token"] == "ref-456"
     assert result["success"] is True
     mget.assert_called_once()
-    mversion.assert_called_once_with(connector_id)
     call_kw = mget.call_args[1]
     assert call_kw["params"] == {"include_properties": "expires_in"}
     assert call_kw["headers"]["x-api-key"] == "secret-key"
@@ -180,11 +176,9 @@ def test_fetch_access_token_success_after_retry(monkeypatch):
 
     with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget, patch(
         "backoff._sync.time.sleep"
-    ), patch(
-        "hotglue_singer_sdk.helpers._hotglue_api.metadata.version", return_value="1.2.3"
     ):
         mget.side_effect = [retry_response, success_response]
-        result = fetch_access_token_from_hotglue_api("c1")
+        result = fetch_access_token_from_hotglue_api("c1", connector_version="1.2.3")
     assert result["access_token"] == "x"
     assert mget.call_count == 2
     for request_call in mget.call_args_list:
