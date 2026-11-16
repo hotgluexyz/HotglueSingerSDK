@@ -459,7 +459,7 @@ class OAuthAuthenticator(APIAuthenticatorBase):
 
         request_time = utc_now()
         token_json = fetch_access_token_from_hotglue_api(
-            connector_id, connector_version=self._tap.plugin_version
+            connector_id, connector_version=getattr(self._tap, "plugin_version", None)
         )
         self.access_token = token_json["access_token"]
         self.expires_in = int(token_json["expires_in"]) if token_json["expires_in"] is not None else  None
