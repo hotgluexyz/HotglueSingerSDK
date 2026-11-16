@@ -182,7 +182,7 @@ def test_fetch_access_token_success_after_retry(monkeypatch):
     assert result["access_token"] == "x"
     assert mget.call_count == 2
     for request_call in mget.call_args_list:
-        assert request_call.kwargs["headers"] == {
+        assert request_call[1]["headers"] == {
             "x-api-key": "k",
             "hg-request-source": "c1/1.2.3",
         }
