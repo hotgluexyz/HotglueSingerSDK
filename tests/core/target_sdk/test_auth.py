@@ -21,6 +21,7 @@ class _FakeTarget:
     """Minimal target-like object for testing auth."""
 
     name = "fake_target"
+    plugin_version = "1.2.3"
     _config: Dict[str, Any]
     _config_file_path: str | None
     logger: logging.Logger
@@ -94,7 +95,7 @@ def test_target_oauth_hg_api_refresh_success(
     assert t._config["access_token"] == "hg-target-token"
 
     assert t._config["expires_in"] == expires_in
-    mfetch.assert_called_once_with("target-snowflake")
+    mfetch.assert_called_once_with("target-snowflake", connector_version=t.plugin_version)
 
 
 
@@ -186,7 +187,7 @@ def test_target_oauth_tries_hg_without_capability_check(target_config, monkeypat
         auth.update_access_token()
 
     assert t._config["access_token"] == "hg-token"
-    mfetch.assert_called_once_with("salesforce-v3")
+    mfetch.assert_called_once_with("salesforce-v3", connector_version=t.plugin_version)
 
 
 @freeze_time("1970-01-01 00:16:40")

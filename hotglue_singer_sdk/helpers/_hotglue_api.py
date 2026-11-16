@@ -57,12 +57,17 @@ def _credential_error_message(response: requests.Response) -> str | None:
         details["tries"],
     ),
 )
-def _get_access_token_response(endpoint: str, api_key: str) -> requests.Response:
+def _get_access_token_response(
+    endpoint: str, api_key: str, request_source: str
+) -> requests.Response:
     """Fetch a Hotglue access-token response."""
     token_response = requests.get(
         endpoint,
         params={"include_properties": "expires_in"},
-        headers={"x-api-key": api_key},
+        headers={
+            "x-api-key": api_key,
+            "hg-request-source": request_source,
+        },
         timeout=300,
     )
     status_code = token_response.status_code
@@ -72,14 +77,18 @@ def _get_access_token_response(endpoint: str, api_key: str) -> requests.Response
     return token_response
 
 
-def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, Any]:
+def fetch_access_token_from_hotglue_api(
+    connector_id: str | None, connector_version: str | None = None
+) -> dict[str, Any]:
     """Fetch access token from the Hotglue access token API endpoint.
 
     Reads ENV_ID, FLOW, TENANT, API_KEY, API_URL from environment.
     Caller supplies connector_id (e.g. os.environ.get("TAP") or "TARGET").
 
     Args:
-        connector_id: Connector identifier (e.g. tap or target id).
+        connector_id: Runtime connector identifier (e.g. tap or target id).
+        connector_version: Version from the tap or target instance. Defaults to
+            unknown when unavailable.
 
     Returns:
         The validated response JSON dict (at least access_token, expires_in;
@@ -110,6 +119,10 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
             "Missing required env vars for Hotglue access token refresh: "
             + ", ".join(missing)
         )
+    if not connector_version or connector_version == "[could not be detected]":
+        connector_version = "unknown"
+    request_source = f"{connector_id}/{connector_version}"
+
     endpoint = (
         f"{api_url}/{env_id}/{flow_id}/{tenant}/connectors/{connector_id}/accesstoken"
     )
@@ -121,7 +134,7 @@ def fetch_access_token_from_hotglue_api(connector_id: str | None) -> dict[str, A
         connector_id,
     )
     try:
-        token_response = _get_access_token_response(endpoint, api_key)
+        token_response = _get_access_token_response(endpoint, api_key, request_source)
     except (RetriableAPIError, requests.HTTPError) as ex:
         if ex.response is None:
             raise RuntimeError(f"Failed Hotglue access token refresh. {ex}") from ex

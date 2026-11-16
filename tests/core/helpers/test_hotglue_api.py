@@ -38,7 +38,9 @@ def _error_response(status_code: int, body: dict) -> MagicMock:
     return mock_response
 
 
-def test_fetch_access_token_success(monkeypatch):
+@pytest.mark.parametrize("connector_id", ["tap-salesforce", "target-salesforce"])
+@pytest.mark.parametrize("connector_version", ["1.2.3", "1.2.3rc1", None])
+def test_fetch_access_token_success(monkeypatch, connector_id, connector_version):
     """Returns response JSON when API returns success with access_token and expires_in."""
     monkeypatch.setenv("API_URL", "https://api.hotglue.com")
     monkeypatch.setenv("ENV_ID", "env-1")
@@ -58,7 +60,9 @@ def test_fetch_access_token_success(monkeypatch):
 
     with patch("hotglue_singer_sdk.helpers._hotglue_api.requests.get") as mget:
         mget.return_value = mock_response
-        result = fetch_access_token_from_hotglue_api("my-connector")
+        result = fetch_access_token_from_hotglue_api(
+            connector_id, connector_version=connector_version
+        )
 
     assert result["access_token"] == "tok-123"
     assert result["expires_in"] == 999888777
@@ -68,8 +72,11 @@ def test_fetch_access_token_success(monkeypatch):
     call_kw = mget.call_args[1]
     assert call_kw["params"] == {"include_properties": "expires_in"}
     assert call_kw["headers"]["x-api-key"] == "secret-key"
+    assert call_kw["headers"]["hg-request-source"] == (
+        f"{connector_id}/{connector_version or 'unknown'}"
+    )
     url = mget.call_args[0][0]
-    assert "env-1/flow-1/tenant-1/connectors/my-connector/accesstoken" in url
+    assert f"env-1/flow-1/tenant-1/connectors/{connector_id}/accesstoken" in url
     assert url.endswith("/accesstoken"), "endpoint path must be /accesstoken not /accesstokens"
 
 
@@ -171,9 +178,14 @@ def test_fetch_access_token_success_after_retry(monkeypatch):
         "backoff._sync.time.sleep"
     ):
         mget.side_effect = [retry_response, success_response]
-        result = fetch_access_token_from_hotglue_api("c1")
+        result = fetch_access_token_from_hotglue_api("c1", connector_version="1.2.3")
     assert result["access_token"] == "x"
     assert mget.call_count == 2
+    for request_call in mget.call_args_list:
+        assert request_call[1]["headers"] == {
+            "x-api-key": "k",
+            "hg-request-source": "c1/1.2.3",
+        }
 
 
 def test_fetch_access_token_non_retryable_http_error(monkeypatch):
