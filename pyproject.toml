@@ -52,7 +52,7 @@ cffi = [
 ]
 importlib-metadata = {version = "*", markers = "python_version < \"3.8\""}
 memoization = ">=0.3.2,<0.5.0"
-jsonpath-ng = "^1.5.3"
+jsonpath-ng = ">=1.5.3,<1.11"
 joblib = [
     { version = "^1.0.1", python = "<3.12" },
     { version = ">=1.4.0,<2.0", python = ">=3.12" },
