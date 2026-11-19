@@ -64,11 +64,12 @@ def test_get_dotenv_config(tmpdir, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmpdir)
     dotenv = Path(tmpdir) / ".env"
     dotenv.write_text("PLUGIN_TEST_PROP1=hello\n")
-    dotenv_config = parse_environment_config(
-        CONFIG_JSONSCHEMA,
-        "PLUGIN_TEST_",
-        dotenv_path=dotenv,
-    )
+    with mock.patch.dict(os.environ):
+        dotenv_config = parse_environment_config(
+            CONFIG_JSONSCHEMA,
+            "PLUGIN_TEST_",
+            dotenv_path=dotenv,
+        )
     assert dotenv_config
     assert dotenv_config["prop1"] == "hello"
 
